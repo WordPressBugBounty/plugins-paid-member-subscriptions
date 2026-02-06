@@ -567,7 +567,7 @@ body:not([class*="_page_pms-basic-info-page"]) .cozmoslabs-form-field-wrapper la
 .cozmoslabs-form-field-wrapper input[type="date"]:disabled,
 .cozmoslabs-form-field-wrapper input[type="number"]:disabled,
 .cozmoslabs-form-field-wrapper input[type="text"]:not(#paypal-ipn-url, #stripe-connect-webhook-url, #pms-subscription-plan-learndash-url):disabled {
-    opacity: 0.5;
+    opacity: 0.8;
     pointer-events: none;
 }
 
@@ -1777,6 +1777,100 @@ body[class*="_page_pms-"] .mce-inline-toolbar-grp .mce-btn.mce-primary:focus {
     width: 500px;
 }
 
+/* Import Confirmation Modal */
+#pms-import-confirmation-modal .pms-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 100000;
+}
+
+#pms-import-confirmation-modal .pms-modal-content {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    z-index: 100001;
+    max-width: 600px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+#pms-import-confirmation-modal .pms-modal-header {
+    padding: 20px 25px;
+    border-bottom: 1px solid #ddd;
+    background: #f8f8f8;
+}
+
+#pms-import-confirmation-modal .pms-modal-header h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+#pms-import-confirmation-modal .pms-modal-body {
+    padding: 15px;
+}
+
+#pms-import-confirmation-modal .pms-warning-message {
+    padding: 15px;
+}
+
+#pms-import-confirmation-modal .pms-warning-message ul {
+    margin: 15px 0;
+    padding-left: 20px;
+}
+
+#pms-import-confirmation-modal .pms-warning-message li {
+    margin-bottom: 8px;
+}
+
+#pms-import-confirmation-modal .pms-backup-recommendation strong {
+    color: #d63638;
+}
+
+#pms-import-confirmation-modal .pms-confirmation-checkbox label {
+    display: flex;
+    gap: 10px;
+    cursor: pointer;
+    margin: 0;
+}
+
+#pms-import-confirmation-modal .pms-confirmation-checkbox input[type="checkbox"] {
+    margin: 0;
+}
+
+#pms-import-confirmation-modal .pms-confirmation-checkbox {
+    padding: 15px;
+    text-align: center;
+}
+
+#pms-import-confirmation-modal .pms-modal-footer {
+    padding: 15px 25px;
+    border-top: 1px solid #ddd;
+    background: #f8f8f8;
+    text-align: right;
+}
+
+#pms-import-confirmation-modal .pms-modal-footer button {
+    margin-left: 10px;
+    height: 32px;
+    vertical-align: middle;
+    box-sizing: border-box;
+    min-height: 32px;
+}
+
+#pms-import-confirmation-modal .pms-modal-proceed:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 
 /***********************************************************/
 /* MetaBox
@@ -2319,7 +2413,7 @@ body.learndash-post-type #pms_post_content_restriction_learndash .button-primary
     margin-top: 35px;
 }
 
-.cozmoslabs-form-field-wrapper.pms-group-memberships-field {
+.cozmoslabs-form-field-wrapper.pms-group-memberships-field, .cozmoslabs-form-field-wrapper.pms-invite-code-field {
     display: none;
 }
 
@@ -2338,6 +2432,10 @@ body.learndash-post-type #pms_post_content_restriction_learndash .button-primary
 
 #pms-form-add-new-member-bulk .tablenav.bottom .tablenav-pages {
     display: none;
+}
+
+#pms-skip-email-notifications-wrapper {
+    width: 100%;
 }
 
 
@@ -4816,8 +4914,23 @@ body.admin-color-fresh ul#adminmenu .toplevel_page_paid-member-subscriptions.wp-
     margin-right: -10px;
 }
 
-.pms-general-section .cozmoslabs-form-field-wrapper, .pms-general-section-previous .cozmoslabs-form-field-wrapper{
-    margin-top: 24px !important;
+.pms-general-section .cozmoslabs-form-field-wrapper, .pms-general-section-previous .cozmoslabs-form-field-wrapper {
+    margin-top: 14px !important;
+}
+
+.pms-general-section .pms-gateway-revenue .cozmoslabs-form-field-wrapper, 
+.pms-general-section .pms-payment-retries .cozmoslabs-form-field-wrapper, 
+.pms-general-section-previous .pms-gateway-revenue .cozmoslabs-form-field-wrapper, 
+.pms-general-section-previous .pms-payment-retries .cozmoslabs-form-field-wrapper {
+    margin-top: 8px !important;
+}
+
+.pms-general-section .pms-gateway-revenue,
+.pms-general-section .pms-payment-retries,
+.pms-general-section-previous .pms-gateway-revenue,
+.pms-general-section-previous .pms-payment-retries {
+    border-top: 1px solid #dcdcde;
+    padding-top: 12px;
 }
 
 /*.pms-general-section .pms-gateway-revenue, .pms-general-section-previous .pms-gateway-revenue,*/
@@ -4931,4 +5044,78 @@ div.wppb-serial-notification {
 
 #pms_add-new-rule-container .pms-add-rule {
     display: none;
+}
+
+/***********************************************************/
+/* Extra Subscription and Discount Options add-on
+/***********************************************************/
+
+.pms-arrow-extra-options {
+    display: inline-block;
+    transition: transform 0.2s ease;
+    margin-left: 5px;
+}
+
+.pms-arrow-extra-options.open {
+    transform: rotate(90deg); /* down arrow */
+}
+
+.pms-toggle-extra-options{
+    font-size: 14px !important;
+    margin-top: 30px;
+    display: inline-block;
+}
+
+#pms-date-error, #pms-limit-error, #pms-maximum-pause-duration-error, #pms-number-of-pauses-error, #pms-maximum-pause-duration-default-error, #pms-number-of-pauses-default-error{
+    color: red !important;
+    display: none;
+}
+
+.pms-addon-upsell-wrapper {
+    position: relative;
+}
+
+.pms-addon-upsell-wrapper img{
+    max-width: 100%;
+}
+
+.pms-addon-upsell-wrapper .cozmoslabs-description-upsell {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 1;
+
+    font-size: 16px;
+    font-weight: 500;
+    width: auto !important;
+    padding: 18px;
+}
+
+.pms-addon-upsell-wrapper .button-primary {
+    margin-top: 12px;
+    font-size: 16px !important;
+    line-height: 100% !important
+}
+
+.pms-esdo-start-date, .pms-esdo-end-date{
+    margin-left: 9px;
+}
+
+/* Gift Subscriptions add-on */
+.pms-payment-gift-metadata .cozmoslabs-form-field-wrapper {
+    margin-top: 12px !important;
+}
+
+.pms-subscription-plan-gift-subscription-field.disabled {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+/***********************************************************/
+/* Pause Subscriptions add-on
+/***********************************************************/
+.pms-ps-title{
+    margin-top: 40px !important;
 }

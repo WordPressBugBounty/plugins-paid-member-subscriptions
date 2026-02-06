@@ -76,7 +76,7 @@ jQuery( function($) {
      * */
     $(document).ready( function () {
         $(function(){
-            $('.wp-admin.edit-php.post-type-pms-discount-codes .wrap .wp-heading-inline').append('<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/add-ons/discount-codes/?utm_source=wpbackend&utm_medium=pms-documentation&utm_campaign=PMSDocs" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>');
+            $('.wp-admin.edit-php.post-type-pms-discount-codes .wrap .wp-heading-inline').append('<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/discount-codes/?utm_source=pms-discount-codes&utm_medium=client-site&utm_campaign=pms-discount-codes-docs" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>');
         });
     });
 
@@ -98,4 +98,45 @@ jQuery(document).ready(function() {
         copyMessage.fadeIn(400).delay(2000).fadeOut(400);
 
     })
+});
+
+/**
+ * Extra Subscription and Discount Options add-on --> Extra Options dropdown + other validations
+ * */
+
+jQuery(document).ready(function($) {
+
+    var $checkbox = $('#pms-discount-limited-usage');
+    var $panel    = $('.pms-limited-window');
+
+    function showLimitedWindow() {
+        $panel.toggle($checkbox.is(':checked'));
+    }
+
+    showLimitedWindow();
+
+    $checkbox.on('change', showLimitedWindow);
+
+    // When a only option is active, uncheck other only options
+    const $newUsersOnly = $('#pms-discount-new-users-only');
+    const $upgradesOnly = $('#pms-discount-available-upgrades');
+    const $expiredOnly = $('#pms-discount-available-exp_subs');
+
+    function uncheckOthers(checkedBox, others) {
+        if (checkedBox.is(':checked')) {
+            others.forEach(el => el.prop('checked', false));
+        }
+    }
+
+    $newUsersOnly.on('change', function() {
+        uncheckOthers($newUsersOnly, [ $upgradesOnly, $expiredOnly ]);
+    });
+
+    $upgradesOnly.on('change', function() {
+        uncheckOthers($upgradesOnly, [ $newUsersOnly, $expiredOnly ]);
+    });
+
+    $expiredOnly.on('change', function() {
+        uncheckOthers($expiredOnly, [ $newUsersOnly, $upgradesOnly ]);
+    });
 });

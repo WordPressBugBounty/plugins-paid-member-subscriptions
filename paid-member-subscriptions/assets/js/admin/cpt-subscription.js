@@ -49,7 +49,7 @@ jQuery( function($) {
     * */
    $(document).ready( function () {
        $(function(){
-           $('.wp-admin.edit-php.post-type-pms-subscription .wrap .wp-heading-inline').append('<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/subscription-plans/?utm_source=wpbackend&utm_medium=pms-documentation&utm_campaign=PMSDocs" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>');
+           $('.wp-admin.edit-php.post-type-pms-subscription .wrap .wp-heading-inline').append('<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/subscription-plans/?utm_source=pms-subscription-plans&utm_medium=client-site&utm_campaign=pms-subscription-plans-docs" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>');
        });
    });
 
@@ -223,3 +223,106 @@ function previousSlide( currentSlide, themeID ){
 
     }
 }
+
+/**
+ * Extra Subscription and Discount Options add-on --> Extra Options validations
+ * */
+
+jQuery(document).ready(function($) {
+
+    var $datepicker = $("input.pms_datepicker");
+
+    // Date picker for subscription start and end date
+    if ($datepicker.length > 0)
+        $("input.pms_datepicker").datepicker({dateFormat: 'yy-mm-dd'});
+
+    //Validation for subscription start/end date
+    const $form = $('#post');
+    const $start = $('#pms-subscription-availability-start-date');
+    const $end = $('#pms-subscription-availability-end-date');
+    const $limitMembers = $('#pms-subscription-limit-members');
+
+    if ($('#pms-date-error').length === 0) {
+        $end.after('<p id="pms-date-error" class="cozmoslabs-description cozmoslabs-description-space-left"></p>');
+    }
+
+    if ($('#pms-limit-error').length === 0) {
+        $limitMembers.after('<p id="pms-limit-error" class="cozmoslabs-description cozmoslabs-description-space-left"></p>');
+    }
+
+    const $errorBox = $('#pms-date-error');
+    const $limitError = $('#pms-limit-error');
+
+    function validateDates(){
+        if ( $start.length === 0 || $end.length === 0 ) {
+            return true;
+        }
+
+        const startVal = $start.val();
+        const endVal = $end.val();
+
+        if (!startVal || !endVal){
+            $errorBox.hide();
+            return true;
+        }
+
+        const startDate = new Date(startVal);
+        const endDate = new Date(endVal);
+
+        if (endDate < startDate) {
+            $errorBox.text('End date cannot be earlier than the start date. Please correct it before saving.').show();
+            $end.focus();
+            return false;
+        }
+
+        $errorBox.hide();
+        return true;
+    }
+
+    function validateLimitMembers(){
+
+        if ($limitMembers.length === 0) {
+            return true;
+        }
+
+        const limitVal = ($limitMembers.val() || '').trim();
+
+        if(!limitVal){
+            $limitError.hide();
+            return true;
+        }
+
+        if (!/^\d+$/.test(limitVal) || parseInt(limitVal) <= 0) {
+            $limitError.text('Limit Members must be a number greater than 0.').show();
+            $limitMembers.focus();
+            return false;
+        }
+
+        $limitError.hide();
+        return true;
+    }
+
+    $form.on('submit', function(e) {
+        const validDates = validateDates();
+        const validLimit = validateLimitMembers();
+
+        if (!validDates || !validLimit)
+            e.preventDefault();
+    });
+});
+
+// Function that copies the shortcode from a text + Add Link to PMS Docs next to metabox title
+jQuery(document).ready(function() {
+    jQuery('.pms-shortcode_copy-text').click(function (e) {
+        e.preventDefault();
+
+        navigator.clipboard.writeText(jQuery(this).text());
+
+        // Show copy message
+        var copyMessage = jQuery(this).next('.pms-copy-message');
+        copyMessage.fadeIn(400).delay(2000).fadeOut(400);
+    })
+
+    //Add PMS Docs Link
+    jQuery('#pms_subscription_extra_options .postbox-header h2').append('<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/subscription-plans/#Advanced_Subscription_Options/?utm_source=pms-subscription-plans&utm_medium=client-site&utm_campaign=pms-advanced-subscription-toolkit-docs" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>');
+});

@@ -50,11 +50,11 @@ Class PMS_AJAX_Checkout_Handler {
         add_action( 'wp_ajax_pms_process_checkout', array( $this, 'process_ajax_checkout' ) );
         add_action( 'wp_ajax_nopriv_pms_process_checkout', array( $this, 'process_ajax_checkout' ) );
 
-        // Process Payment
+        // Process Payment - Only used for Stripe when further front-end processing is required
         add_action( 'wp_ajax_pms_process_payment', array( $this, 'process_payment' ) );
         add_action( 'wp_ajax_nopriv_pms_process_payment', array( $this, 'process_payment' ) );
 
-        // Grab a fresh process payment nonce
+        // Grab a fresh process payment nonce - Only used for Stripe when further front-end processing is required
         add_action( 'wp_ajax_pms_update_nonce', array( $this, 'refresh_nonce' ) );
         add_action( 'wp_ajax_nopriv_pms_update_nonce', array( $this, 'refresh_nonce' ) );
 
@@ -134,14 +134,78 @@ Class PMS_AJAX_Checkout_Handler {
         if( empty( $payment_gateway ) )
             die();
 
-        // Make sure that payment gateway is enabled
+        // Make sure the payment gateway is enabled
         $active_gateways = pms_get_active_payment_gateways();
 
         if( !in_array( $payment_gateway, $active_gateways ) )
             die();
+        
+        $intent_id = !empty( $_POST['payment_intent'] ) ? sanitize_text_field( $_POST['payment_intent'] ) : '';
 
-        $payment_id      = !empty( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
-        $subscription_id = !empty( $_POST['subscription_id'] ) ? absint( $_POST['subscription_id'] ) : 0;
+        if( empty( $intent_id ) )
+            die();
+
+        $user_id              = !empty( $_POST['user_id'] ) ? absint( $_POST['user_id'] ) : 0;
+        $subscription_id      = !empty( $_POST['subscription_id'] ) ? absint( $_POST['subscription_id'] ) : 0;
+        $subscription_plan_id = !empty( $_POST['subscription_plan_id'] ) ? absint( $_POST['subscription_plan_id'] ) : 0;
+
+        if( empty( $user_id ) || empty( $subscription_id ) || empty( $subscription_plan_id ) )
+            die();
+
+        // Verify that the target subscription belongs to the correct user
+        $subscription = pms_get_member_subscriptions( array( 'user_id' => $user_id, 'subscription_plan_id' => $subscription_plan_id ) );
+
+        if( empty( $subscription ) || !isset( $subscription[0] ) || !isset( $subscription[0]->id ) )
+            die();
+
+        $subscription = $subscription[0];
+
+        if( $subscription->id != $subscription_id )
+            die();
+
+        // If payment doesn't exist, this is a free trial payment and we need to use subscription meta to determine if a next action was required
+        $payment_id = !empty( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
+
+        if( empty( $payment_id ) ){
+
+            $next_action       = pms_get_member_subscription_meta( $subscription_id, 'pms_stripe_next_action', true );
+            $payment_intent_id = pms_get_member_subscription_meta( $subscription_id, 'pms_stripe_next_action_intent_id', true );
+
+        } else {
+
+            $payment = pms_get_payment( $payment_id );
+
+            if( !isset( $payment->id ) )
+                die();
+    
+            $next_action       = pms_get_payment_meta( $payment->id, 'pms_stripe_next_action', true );
+            $payment_intent_id = pms_get_payment_meta( $payment->id, 'pms_stripe_next_action_intent_id', true );
+
+            // If a 100% discount code is used, the payment exists but the extra processing data is not saved on the payment, but it should exist on the subscription
+            if( empty( $next_action ) ) 
+                $next_action = pms_get_member_subscription_meta( $subscription_id, 'pms_stripe_next_action', true );
+            
+            if( empty( $payment_intent_id ) )
+                $payment_intent_id = pms_get_member_subscription_meta( $subscription_id, 'pms_stripe_next_action_intent_id', true );
+
+        }
+            
+        // Only process payments that are in the next action state
+        if( empty( $next_action ) || $next_action != 1 )
+            die();
+
+        // Verify that the saved payment intent id is the same as the one processed in this request
+        if( empty( $payment_intent_id ) || $payment_intent_id != $intent_id )
+            die();
+
+        // Delete extra data
+        pms_delete_member_subscription_meta( $subscription_id, 'pms_stripe_next_action' );
+        pms_delete_member_subscription_meta( $subscription_id, 'pms_stripe_next_action_intent_id' );
+
+        if( !empty( $payment_id ) ) {
+            pms_delete_payment_meta( $payment_id, 'pms_stripe_next_action' );
+            pms_delete_payment_meta( $payment_id, 'pms_stripe_next_action_intent_id' );
+        }
 
         // Initialize gateway
         $gateway = pms_get_payment_gateway( $payment_gateway );
@@ -330,6 +394,26 @@ Class PMS_AJAX_Checkout_Handler {
                 'wppb_errors' => $field_check_errors,
             );
 
+            $pms_errors = pms_errors();
+
+            if ( ! empty( $pms_errors->errors ) ) {
+                $pms_error_messages = array();
+
+                foreach( $pms_errors->errors as $error_code => $messages ) {
+
+                    if ( ! empty( $messages[0] ) ) {
+                        $pms_error_messages[] = array( 
+                            'target'  => $error_code, 
+                            'message' => $messages[0] 
+                        );
+                    }
+                }
+
+                if ( ! empty( $pms_error_messages ) ) {
+                    $data['pms_errors'] = $pms_error_messages;
+                }
+            }
+
             echo json_encode( $data );
             die();
 
@@ -361,6 +445,7 @@ Class PMS_AJAX_Checkout_Handler {
                     'pmsscscd'                   => base64_encode( 'subscription_plans' ),
                     'pms_gateway_payment_action' => base64_encode( $form_location ),
                     'pms_gateway_payment_id'     => !empty( $payment_id ) ? base64_encode( $payment_id ) : '',
+                    'subscription_plan_id'       => !empty( $_POST['subscription_plans'] ) ? base64_encode( sanitize_text_field( $_POST['subscription_plans'] ) ) : '',
                 ),
             $redirect_url );
 
@@ -378,6 +463,7 @@ Class PMS_AJAX_Checkout_Handler {
                     'pmsscscd'                   => base64_encode( 'subscription_plans' ),
                     'pms_gateway_payment_action' => base64_encode( $form_location ),
                     'pms_gateway_payment_id'     => !empty( $payment_id ) ? base64_encode( $payment_id ) : '',
+                    'subscription_plan_id'       => !empty( $_POST['subscription_plans'] ) ? base64_encode( sanitize_text_field( $_POST['subscription_plans'] ) ) : '',
                 ),
             $redirect_url );
 
@@ -391,8 +477,17 @@ Class PMS_AJAX_Checkout_Handler {
 
                 $redirect_url = esc_url_raw( $_POST['current_page'] );
 
-                $payment = pms_get_payment( $payment_id );
-                $user    = get_userdata( $payment->user_id );
+                if( empty( $payment_id ) ){
+
+                    $user_email = isset( $_POST['user_email'] ) ? sanitize_text_field( $_POST['user_email'] ) : ( isset( $_POST['email'] ) ? sanitize_text_field( $_POST['email'] ) : '' );
+                    $user       = get_user_by( 'email', $user_email );
+
+                } else {
+
+                    $payment = pms_get_payment( $payment_id );
+                    $user    = get_userdata( $payment->user_id );
+
+                }
 
                 // WPPB Form
                 if( isset( $_REQUEST['form_type'] ) && $_REQUEST['form_type'] == 'wppb' ){
@@ -492,6 +587,7 @@ Class PMS_AJAX_Checkout_Handler {
                     'pmsscscd'                   => base64_encode( 'subscription_plans' ),
                     'pms_gateway_payment_action' => base64_encode( $form_location ),
                     'pms_gateway_payment_id'     => !empty( $payment_id ) ? base64_encode( $payment_id ) : '',
+                    'subscription_plan_id'       => !empty( $_POST['subscription_plans'] ) ? base64_encode( sanitize_text_field( $_POST['subscription_plans'] ) ) : '',
                 ),
             $redirect_url );
 
@@ -564,7 +660,8 @@ Class PMS_AJAX_Checkout_Handler {
                 $checkout_data[$key] = $value;
         }
 
-        return $checkout_data;
+        return apply_filters( 'pms_ajax_get_checkout_data', $checkout_data );
+
     }
 
 }

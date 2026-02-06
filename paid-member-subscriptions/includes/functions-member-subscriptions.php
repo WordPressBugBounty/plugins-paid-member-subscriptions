@@ -65,14 +65,22 @@ function pms_get_member_subscriptions( $args = array() ) {
     // Filter by status
     if( !empty( $args['status'] ) ) {
 
-        $status       = sanitize_text_field( $args['status'] );
-        $query_where .= " AND status LIKE '{$status}'";
+        if( is_array( $args['status'] ) ){
+            $status = implode(',', array_map( fn($s) => "'" . sanitize_text_field($s) . "'", $args['status'] ) );
+            $query_where .= " AND status IN ($status)";
+        }
+        else{
+            $status       = sanitize_text_field( $args['status'] );
+            $query_where .= " AND status LIKE '{$status}'";
+        }
 
     }
 
-	// Exclude Abandoned subscriptions unless requested
-	if( isset( $args['include_abandoned'] ) && $args['include_abandoned'] === false )
+	// Exclude Abandoned and Pending Gift statuses unless requested
+	if( isset( $args['include_abandoned'] ) && $args['include_abandoned'] === false ){
 		$query_where .= " AND status NOT LIKE 'abandoned'";
+        $query_where .= " AND status NOT LIKE 'pending_gift'";
+    }
 
     // Filter by start date
     if( ! empty( $args['start_date'] ) ) {
@@ -162,9 +170,9 @@ function pms_get_member_subscriptions( $args = array() ) {
 
     if ( ! empty($args['orderby']) ) {
 
-		// On the edit_member page, make sure abandoned subs are last
+		// On the edit_member page, make sure abandoned and pending_gift subs are last
 		if( isset( $_GET['page'], $_GET['subpage'] ) && $_GET['page'] === 'pms-members-page' && $_GET['subpage'] === 'edit_member' )
-			$query_order_by = " ORDER BY status = 'abandoned', status ";
+			$query_order_by = " ORDER BY status IN ('abandoned', 'pending_gift'), status ";
 		else
 			$query_order_by = " ORDER BY " . trim( $args['orderby'] ) . ' ';
 
@@ -388,7 +396,7 @@ function pms_get_member_subscription_payment_method_details( $member_subscriptio
         return array();
 
     $data    = array();
-    $targets = array( 'pms_payment_method_number', 'pms_payment_method_type', 'pms_payment_method_expiration_month', 'pms_payment_method_expiration_year' );
+    $targets = array( 'pms_payment_method_type', 'pms_payment_method_number', 'pms_payment_method_brand', 'pms_payment_method_expiration_month', 'pms_payment_method_expiration_year' );
 
     foreach( $targets as $target ){
         $value = pms_get_member_subscription_meta( $member_subscription_id, $target, true );

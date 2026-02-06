@@ -197,8 +197,22 @@ Class PMS_Submenu_Page_Members extends PMS_Submenu_Page {
                     $_POST['expiration_date'] = $member_subscription->billing_next_payment;
             }
 
+
+            // Reset Subscription expiration and next payment dates when an admin manually abandons a recurring subscription form the administration area
+            if( isset( $_POST['status'] ) && in_array( $_POST['status'], array( 'abandoned' ) ) && $_POST['status'] != $member_subscription->status ){
+                if( !empty( $member_subscription->billing_next_payment ) )
+                    $_POST['expiration_date']      = date( 'Y-m-d H:i:s' );
+                    $_POST['billing_next_payment'] = '';
+            }
+
+            do_action( 'pms_before_edit_subscription_admin', $member_subscription );
+
             // When a subscription is edited by the admin, disable payment retry
             pms_update_member_subscription_meta( $member_subscription->id, 'pms_retry_payment', 'inactive' );
+
+            if( isset( $_POST['billing_currency'] ) && !empty( $_POST['billing_currency'] ) ){
+                pms_update_member_subscription_meta( $member_subscription->id, 'currency', sanitize_text_field( $_POST['billing_currency'] ) );
+            }
 
             $updated = $member_subscription->update( $_POST );
 
@@ -965,6 +979,12 @@ Class PMS_Submenu_Page_Members extends PMS_Submenu_Page {
                 break;
             case 'paypal_webhook_payment_token_created':
                 $message = __( 'Payment token created and assigned to the subscription.', 'paid-member-subscriptions' );
+                break;
+            case 'esdo_automatically_downgrade':
+                $message = sprintf( __( 'Automatically downgraded plan to %s', 'paid-member-subscriptions' ), $log['data']['subscription_name'] );
+                break;
+            case 'bgn_migration_to_eur':
+                $message = sprintf( __( 'Billing amount and subscription currency have been converted to EUR due to the Bulgarian leva migration. Billing amount was converted from <strong>%s</strong> to <strong>%s</strong>.', 'paid-member-subscriptions' ), pms_format_price( $log['data']['old_billing_amount'], 'BGN' ), pms_format_price( $log['data']['new_billing_amount'], 'EUR' ) );
                 break;
             default:
                 $message = __( 'Something went wrong.', 'paid-member-subscriptions' );

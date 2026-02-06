@@ -35,6 +35,7 @@ function pms_woo_subscription_tab_content() {
 
     $options = array( '0' => __('None', 'paid-member-subscriptions' ));
     $subscription_plans = pms_get_subscription_plans();
+    $subscription_plans = apply_filters('pms_woo_subscription_plans', $subscription_plans );
     $existing_subscription = array( 'id' => pms_woo_get_product_subscription_id( $post->ID ));
 
     foreach( $subscription_plans as $sub ) {
@@ -189,6 +190,10 @@ function pms_woo_is_product_subscription_renewal( $product ) {
 
 // Check if WooCommerce Order Status was changed manually from the administration panel
 function pms_woo_is_manual_order_update( $existing_subscription_id, $order_key ) {
+
+    if ( !is_admin() )
+        return false;
+
     $existing_order_key = pms_get_member_subscription_meta( $existing_subscription_id, 'woo_order_key' );
     $manual_order_update = false;
     if ( !empty( $existing_order_key ) )
@@ -206,14 +211,14 @@ function pms_get_subscription_replacement_data( $user_id, $new_subscription_plan
     $existing_subscriptions = pms_get_member_subscriptions( array( 'user_id' => $user_id ) );
 
     if ( empty( $existing_subscriptions ) )
-        return ;
+        return array();
 
     $new_subscription = pms_get_subscription_plan( $new_subscription_plan_id );
     $upgrades = array_map( function( $plan ) { return $plan->id; }, pms_get_subscription_plan_upgrades( $new_subscription_plan_id ) );
     $downgrades = array_map( function( $plan ) { return $plan->id; }, pms_get_subscription_plan_downgrades( $new_subscription_plan_id ) );
 
     if ( empty( $upgrades ) && empty( $downgrades ) ) {
-        return ;
+        return array();
     }
 
     $new_subscription_plan_name = $new_subscription->name;
@@ -490,7 +495,10 @@ function pms_woo_handle_member_subscription( $order_id ) {
                 pms_woo_update_member_subscription( $subscription_data, $subscription_renewal, $user_existing_subscriptions, $order_id, $order_key );
             }
             elseif ( empty( $current_subscription_from_tier ) && ( empty( $user_existing_subscriptions ) || class_exists( 'PMS_IN_Multiple_Subscriptions_Per_User' ))) {
-                pms_woo_add_new_member_subscription( $subscription_data, $order_id, $order_key );
+                $limit_reached = apply_filters( 'pms_woo_subscription_limit_reached', false, $subscription_plan_id );
+
+                if( !$limit_reached )
+                    pms_woo_add_new_member_subscription( $subscription_data, $order_id, $order_key );
             }
         }
     }

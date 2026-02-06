@@ -81,7 +81,7 @@ Class PMS_Payment_Gateway_Manual extends PMS_Payment_Gateway {
 
         if( empty( $subscription ) && isset( $_POST['pms_current_subscription'] ) )
             $subscription = pms_get_member_subscription( absint( $_POST['pms_current_subscription'] ) );
-        
+
         // Activate subscription if plan has a free trial
         if( !empty( $this->subscription_data['trial_end'] ) ){
 
@@ -101,7 +101,7 @@ Class PMS_Payment_Gateway_Manual extends PMS_Payment_Gateway {
 
         }
 
-        if( $this->recurring || $subscription->has_installments() ){
+        if( $this->recurring || ( !empty( $subscription ) && $subscription instanceof PMS_Member_Subscription && $subscription->has_installments() ) ){
 
             $billing_next_payment = !empty( $this->subscription_data['trial_end'] ) ?  $this->subscription_data['trial_end'] : $this->subscription_data['expiration_date'];
 
@@ -113,7 +113,7 @@ Class PMS_Payment_Gateway_Manual extends PMS_Payment_Gateway {
             );
 
             // set the initial billing cycle if Payment Installments are enabled
-            if( $subscription->has_installments() )
+            if( !empty( $subscription ) && $subscription instanceof PMS_Member_Subscription && $subscription->has_installments() )
                 pms_add_member_subscription_billing_initial_cycle( false, $subscription, $this->form_location );
 
             $subscription->update( $subscription_data );
@@ -128,7 +128,7 @@ Class PMS_Payment_Gateway_Manual extends PMS_Payment_Gateway {
         // Success Redirect
         if( isset( $_POST['pmstkn'] ) ) {
 
-            $redirect_url = add_query_arg( array( 'pms_gateway_payment_id' => base64_encode( $this->payment_id ), 'pmsscscd' => base64_encode( 'subscription_plans' ), 'pms_gateway_payment_action' => base64_encode( $this->form_location ) ), $this->redirect_url );
+            $redirect_url = add_query_arg( array( 'pms_gateway_payment_id' => base64_encode( $this->payment_id ), 'pmsscscd' => base64_encode( 'subscription_plans' ), 'pms_gateway_payment_action' => base64_encode( $this->form_location ), 'subscription_plan_id' => base64_encode( $this->subscription_plan->id ) ), $this->redirect_url );
 
             wp_redirect( $redirect_url );
             exit;

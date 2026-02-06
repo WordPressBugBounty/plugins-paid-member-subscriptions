@@ -30,7 +30,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
             <h4 class="cozmoslabs-subsection-title">
                 <?php esc_html_e( 'GDPR Settings', 'paid-member-subscriptions' ); ?>
-                <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/settings/misc/?utm_source=wpbackend&utm_medium=pms-documentation&utm_campaign=PMSDocs#GDPR" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
+                <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/settings/misc/?utm_source=pms-misc-settings&utm_medium=client-site&utm_campaign=pms-gdpr-docs#GDPR " target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
             </h4>
 
             <div class="cozmoslabs-form-field-wrapper cozmoslabs-toggle-switch">
@@ -89,7 +89,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
         <div class="cozmoslabs-form-subsection-wrapper" id="cozmoslabs-subsection-other-settings">
             <h4 class="cozmoslabs-subsection-title">
                 <?php esc_html_e( 'Other Settings', 'paid-member-subscriptions' ); ?>
-                <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/settings/misc/?utm_source=wpbackend&utm_medium=pms-documentation&utm_campaign=PMSDocs#Others" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
+                <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/settings/misc/?utm_source=pms-misc-settings&utm_medium=client-site&utm_campaign=pms-other-settings-docs#Others" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
             </h4>
 
             <div class="cozmoslabs-form-field-wrapper cozmoslabs-toggle-switch">
@@ -229,7 +229,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
         <div class="cozmoslabs-form-subsection-wrapper" id="cozmoslabs-subsection-subscriptions-settings">
             <h4 class="cozmoslabs-subsection-title">
                 <?php esc_html_e( 'Subscriptions Settings', 'paid-member-subscriptions' ); ?>
-                <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/settings/misc/?utm_source=wpbackend&utm_medium=pms-documentation&utm_campaign=PMSDocs#Others" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
+                <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/settings/misc/?utm_source=pms-misc-settings&utm_medium=client-site&utm_campaign=pms-other-settings-docs#Others" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
             </h4>
 
 
@@ -342,7 +342,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
         <div class="cozmoslabs-form-subsection-wrapper" id="cozmoslabs-subsection-payment-settings">
             <h4 class="cozmoslabs-subsection-title">
                 <?php esc_html_e( 'Payment Settings', 'paid-member-subscriptions' ); ?>
-                <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/settings/misc/?utm_source=wpbackend&utm_medium=pms-documentation&utm_campaign=PMSDocs#Payments" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
+                <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/settings/misc/?utm_source=pms-misc-settings&utm_medium=client-site&utm_campaign=pms-payments-docs#Payments" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
             </h4>
 
             <div class="cozmoslabs-form-field-wrapper">
@@ -447,10 +447,13 @@ if ( ! defined( 'ABSPATH' ) ) exit;
                 </div>
 
                 <div class="cozmoslabs-form-field-wrapper">
+                    <?php
+                        $payment_retry_status = isset( $this->options['payments']['payment_retry_status'] ) ? $this->options['payments']['payment_retry_status'] : 'expired';
+                    ?>
                     <label class="cozmoslabs-form-field-label" for="payment-retry-status"><?php esc_html_e( 'Status of the subscription while retrying', 'paid-member-subscriptions' ) ?></label>
                     <select id="payment-retry-status" class="widefat" name="pms_misc_settings[payments][payment_retry_status]">
-                        <option value="expired" <?php selected( $this->options['payments']['payment_retry_status'], 'expired' ); ?>><?php esc_html_e( 'Expired', 'paid-member-subscriptions' ); ?></option>
-                        <option value="active" <?php selected( $this->options['payments']['payment_retry_status'], 'active' ); ?>><?php esc_html_e( 'Active', 'paid-member-subscriptions' ); ?></option>
+                        <option value="expired" <?php selected( $payment_retry_status, 'expired' ); ?>><?php esc_html_e( 'Expired', 'paid-member-subscriptions' ); ?></option>
+                        <option value="active" <?php selected( $payment_retry_status, 'active' ); ?>><?php esc_html_e( 'Active', 'paid-member-subscriptions' ); ?></option>
                     </select>
                     
                     <p class="cozmoslabs-description cozmoslabs-description-align-right"><?php esc_html_e( 'Select the status of the subscription while retrying. By default, the subscription will be set to expired.', 'paid-member-subscriptions' ); ?></p>

@@ -587,7 +587,7 @@ class PMS_IN_TutorLMS {
         foreach ( $all_tutor_course_ids as $course_id ) {
             $course_subscription_plan_ids = get_post_meta( $course_id, 'pms-content-restrict-subscription-plan' );
             $course_categories = wp_get_object_terms( $course_id, 'course-category', array( 'fields' => 'ids' ) );
-            $course_in_target_category = !empty( array_intersect( $targeted_categories, $course_categories ) );
+            $course_in_target_category = is_array( $course_categories ) ? !empty( array_intersect( $targeted_categories, $course_categories ) ) : false;
             $public_course = get_post_meta( $course_id, '_tutor_is_public_course', true );
 
             if ( $public_course === 'no' && empty( $course_subscription_plan_ids ) ) {
@@ -747,7 +747,12 @@ class PMS_IN_TutorLMS {
      *
      */
     public function get_member_subscription_categories( $subscription_id ) {
-        return pms_get_member_subscription_meta( $subscription_id, 'pms_member_subscription_tutor_categories', true );
+        $categories = pms_get_member_subscription_meta( $subscription_id, 'pms_member_subscription_tutor_categories', true );
+
+        if( ! is_array( $categories ) )
+            $categories = array();
+        
+        return $categories;
     }
 
     /**
@@ -1152,7 +1157,7 @@ class PMS_IN_TutorLMS {
         $notification_id = 'pms-tutor-lms-integration';
         $message = '<img style="float: left; margin: 20px 12px 10px 0; max-width: 100px;" src="' . PMS_PLUGIN_DIR_URL . 'assets/images/tutor-lms-logo.png" />';
         $message .= '<p style="margin-top: 16px;">' . wp_kses_post( '<strong>Tutor LMS Integration</strong> for <strong>Paid Member Subscriptions</strong> is now available!<br><br>Sell access to courses, create beautiful front-end register, login and reset password forms and restrict access to your Courses.<br>Enable by selecting <strong>Paid Member Subscriptions</strong> as the eCommerce Engine in <a href="'. esc_url( admin_url( 'admin.php?page=tutor_settings&tab_page=monetization' ) ) .'">Tutor LMS --> Settings --> Monetization</a>.' ) . '</p>';
-        $message .= '<p><a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/integration-with-other-plugins/tutor-lms/?utm_source=wpbackend&utm_medium=pms-documentation&utm_campaign=PMSDocs" class="button-primary" target="_blank">' . esc_html__( 'Learn More', 'paid-member-subscriptions' ) . '</a></p>';
+        $message .= '<p><a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/integration-with-other-plugins/tutor-lms/?utm_source=pms-tutor-lms-settings&utm_medium=client-site&utm_campaign=pms-tutor-lms-docs" class="button-primary" target="_blank">' . esc_html__( 'Learn More', 'paid-member-subscriptions' ) . '</a></p>';
         $message .= '<a href="' . esc_url( wp_nonce_url( add_query_arg( array( 'pms_dismiss_admin_notification' => $notification_id ) ), 'pms_plugin_notice_dismiss' ) ) . '" type="button" class="notice-dismiss" style="text-decoration: none;"><span class="screen-reader-text">' . esc_html__( 'Dismiss this notice.', 'paid-member-subscriptions' ) . '</span></a>';
 
         pms_add_plugin_notification( $notification_id, $message, 'pms-notice pms-narrow notice notice-success', true, array( 'pms-addons-page' ) );

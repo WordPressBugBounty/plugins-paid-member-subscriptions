@@ -46,7 +46,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
     <label for="pms-subscription-plan-price" class="pms-meta-box-field-label cozmoslabs-form-field-label"><?php esc_html_e( 'Price', 'paid-member-subscriptions' ); ?></label>
 
-    <input type="text" id="pms-subscription-plan-price" name="pms_subscription_plan_price" class="small" value="<?php echo esc_attr( $subscription_plan->price ); ?>" /> <strong><?php echo esc_html( pms_get_active_currency() ); ?></strong>
+    <input type="text" id="pms-subscription-plan-price" name="pms_subscription_plan_price" class="small" value="<?php echo esc_attr( $subscription_plan->price ); ?>" /> <strong><span id="pms-default-currency"><?php echo esc_html( pms_get_active_currency() ); ?></span></strong>
 
     <p class="cozmoslabs-description cozmoslabs-description-align-right"><?php esc_html_e( 'Amount you want to charge people who join this plan. Leave 0 if you want this plan to be free.', 'paid-member-subscriptions' ); ?></p>
 
@@ -60,7 +60,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
         <label for="pms-subscription-plan-sign-up-fee" class="pms-meta-box-field-label cozmoslabs-form-field-label">
             <?php esc_html_e( 'Sign-up Fee', 'paid-member-subscriptions' ); ?>
-            <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/subscription-plans/?utm_source=wpbackend&utm_medium=pms-documentation&utm_campaign=PMSDocs#Sign-up_Fee" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
+            <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/subscription-plans/?utm_source=pms-subscription-plans&utm_medium=client-site&utm_campaign=pms-sign-up-fee#Sign-up_Fee" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
         </label>
 
         <input type="text" id="pms-subscription-plan-sign-up-fee" name="pms_subscription_plan_sign_up_fee" class="small" value="<?php echo esc_attr( $subscription_plan->sign_up_fee ); ?>" /> <strong><?php echo esc_html( pms_get_active_currency() ); ?></strong>
@@ -70,16 +70,6 @@ if ( ! defined( 'ABSPATH' ) ) exit;
     </div>
 
     <?php do_action( 'pms_view_meta_box_subscription_details_sign_up_fee_bottom', $subscription_plan->id ); ?>
-<?php else : ?>
-    <div class="pms-meta-box-field-wrapper cozmoslabs-form-field-wrapper">
-
-        <label for="pms-subscription-plan-sign-up-fee" class="pms-meta-box-field-label cozmoslabs-form-field-label"><?php esc_html_e( 'Sign-up Fee', 'paid-member-subscriptions' ); ?></label>
-
-        <span class="cozmoslabs-disabled-input">0</span><strong><?php echo esc_html( pms_get_active_currency() ); ?></strong>
-
-        <p class="cozmoslabs-description cozmoslabs-description-align-right"><?php printf( esc_html__( 'This feature is available only with the Manual, %1$sStripe%2$s, %3$sPayPal Express%4$s gateways or %5$sRecurring Payments for PayPal Standard%6$s add-on.', 'paid-member-subscriptions' ), '<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/add-ons/stripe-payment-gateway/" target="_blank">', '</a>', '<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/add-ons/paypal-pro-and-express-checkout/" target="_blank">', '</a>', '<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/add-ons/recurring-payments-for-paypal-standard/" target="_blank">', '</a>' ); ?></p>
-
-    </div>
 <?php endif; ?>
 
 <!-- Free trial -->
@@ -88,7 +78,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
         <label for="pms-subscription-plan-trial-duration" class="pms-meta-box-field-label cozmoslabs-form-field-label">
             <?php esc_html_e( 'Free Trial', 'paid-member-subscriptions' ); ?>
-            <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/subscription-plans/?utm_source=wpbackend&utm_medium=pms-documentation&utm_campaign=PMSDocs#Free_Trial" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
+            <a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/subscription-plans/?utm_source=pms-subscription-plans&utm_medium=client-site&utm_campaign=pms-free-trial#Free_Trial" target="_blank" data-code="f223" class="pms-docs-link dashicons dashicons-editor-help"></a>
         </label>
 
         <input type="text" id="pms-subscription-plan-trial-duration" name="pms_subscription_plan_trial_duration" value="<?php echo esc_attr( $subscription_plan->trial_duration ); ?>" />
@@ -100,24 +90,6 @@ if ( ! defined( 'ABSPATH' ) ) exit;
             <option value="year"  <?php selected( 'year', $subscription_plan->trial_duration_unit, true ); ?>><?php esc_html_e( 'Year(s)', 'paid-member-subscriptions' ); ?></option>
         </select>
         <p class="cozmoslabs-description cozmoslabs-description-align-right"><?php esc_html_e( 'The free trial represents the amount of time before charging the first recurring payment. The sign-up fee applies regardless of the free trial.', 'paid-member-subscriptions' ); ?></p>
-
-    </div>
-
-    <?php do_action( 'pms_view_meta_box_subscription_details_free_trial_bottom', $subscription_plan->id ); ?>
-<?php else : ?>
-    <div class="pms-meta-box-field-wrapper cozmoslabs-form-field-wrapper">
-
-        <label for="pms-subscription-plan-trial-duration" class="pms-meta-box-field-label cozmoslabs-form-field-label"><?php esc_html_e( 'Free Trial', 'paid-member-subscriptions' ); ?></label>
-
-        <span class="pms-disabled-input">0</span><?php echo esc_html( pms_get_active_currency() ); ?>
-
-        <select id="pms-subscription-plan-trial-duration-unit" disabled>
-            <option value="day"   <?php selected( 'day', $subscription_plan->trial_duration_unit, true ); ?>><?php esc_html_e( 'Day(s)', 'paid-member-subscriptions' ); ?></option>
-            <option value="week"  <?php selected( 'week', $subscription_plan->trial_duration_unit, true ); ?>><?php esc_html_e( 'Week(s)', 'paid-member-subscriptions' ); ?></option>
-            <option value="month" <?php selected( 'month', $subscription_plan->trial_duration_unit, true ); ?>><?php esc_html_e( 'Month(s)', 'paid-member-subscriptions' ); ?></option>
-            <option value="year"  <?php selected( 'year', $subscription_plan->trial_duration_unit, true ); ?>><?php esc_html_e( 'Year(s)', 'paid-member-subscriptions' ); ?></option>
-        </select>
-        <p class="cozmoslabs-description cozmoslabs-description-align-right"><?php printf( esc_html__( 'This feature is available only with the Manual, %1$sStripe%2$s, %3$sPayPal Express%4$s gateways or %5$sRecurring Payments for PayPal Standard%6$s add-on.', 'paid-member-subscriptions' ), '<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/add-ons/stripe-payment-gateway/" target="_blank">', '</a>', '<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/add-ons/paypal-pro-and-express-checkout/" target="_blank">', '</a>', '<a href="https://www.cozmoslabs.com/docs/paid-member-subscriptions/add-ons/recurring-payments-for-paypal-standard/" target="_blank">', '</a>' ); ?></p>
 
     </div>
 
@@ -149,7 +121,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
         <div id="pms-payment-cycle-options">
 
             <!-- Number of Payments -->
-            <div class="pms-meta-box-field-wrapper cozmoslabs-form-field-wrapper">
+            <div class="pms-meta-box-field-wrapper cozmoslabs-form-field-wrapper" id="pms-subscription-plan-number-of-payments-field">
                 <label for="pms-subscription-plan-number-of-payments" class="pms-meta-box-field-label cozmoslabs-form-field-label"><?php esc_html_e( 'Number of Payments', 'paid-member-subscriptions' ) ?></label>
 
                 <input type="number" id="pms-subscription-plan-number-of-payments" name="pms_subscription_plan_number_of_payments" value="<?php echo esc_attr( $subscription_plan->number_of_payments ) ?>" />

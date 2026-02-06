@@ -682,6 +682,7 @@ function pms_in_api_cancel_paypal_subscription( $payment_profile_id, $action = '
 
     // Get API credentials and check if they are complete
     $api_credentials = pms_get_paypal_api_credentials();
+    $api_credentials = apply_filters( 'pms_paypal_standard_recurring_payments_process_cancel_subscription_api_credentials', $api_credentials, $payment_profile_id );
 
     if( !$api_credentials ){
         $error = __( 'PayPal API credentials are missing or are incomplete', 'paid-member-subscriptions' );
@@ -1003,7 +1004,7 @@ function pms_in_ppsrp_cancel_subscription_on_api_subscription_cancelation( $id, 
     if( empty( $old_data['payment_profile_id'] ) || !pms_is_paypal_payment_profile_id( $old_data['payment_profile_id'] ) )
         return;
 
-    if( !empty( $data['status'] ) && in_array( $data['status'], [ 'canceled', 'abandoned', 'expired' ] ) && $data['status'] != $old_data )
+    if( !empty( $data['status'] ) && in_array( $data['status'], [ 'canceled', 'abandoned' ] ) && $data['status'] != $old_data )
         pms_in_api_cancel_paypal_subscription( $old_data['payment_profile_id'], 'cancel', 'Subscription canceled because an admin deleted the user from the website.' );
 
 }

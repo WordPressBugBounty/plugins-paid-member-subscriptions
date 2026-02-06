@@ -215,12 +215,16 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
         if( !empty( $_REQUEST['stripe_confirmation_token'] ) ){
 
-            if( ( PMS_Form_Handler::checkout_has_trial() && PMS_Form_Handler::user_can_access_trial( $this->subscription_plan ) && ( !isset( $payment->id ) || $payment->amount == 0 ) ) || ( !isset( $payment->id ) && $payment->amount == 0 ) || ( !is_null( $this->sign_up_amount ) && $this->sign_up_amount == 0 ) ){
+            if( ( PMS_Form_Handler::checkout_has_trial() && PMS_Form_Handler::user_can_access_trial( $this->subscription_plan ) && ( !isset( $payment->id ) || $payment->amount == 0 ) ) || ( isset( $payment->id ) && $payment->amount == 0 ) || ( !is_null( $this->sign_up_amount ) && $this->sign_up_amount == 0 ) ){
 
                 $intent = $this->create_setup_intent( sanitize_text_field( $_REQUEST['stripe_confirmation_token'] ), $subscription );
 
                 if( isset( $intent->next_action ) && !is_null( $intent->next_action ) && !empty( $intent->next_action->type ) ){
     
+                    // Save the next step as subscription meta for free trial payments
+                    pms_update_member_subscription_meta( $subscription->id, 'pms_stripe_next_action', 1 );
+                    pms_update_member_subscription_meta( $subscription->id, 'pms_stripe_next_action_intent_id', $intent->id );
+
                     $data = array(
                         'success'              => false,
                         'client_secret'        => $intent->client_secret,
@@ -339,12 +343,14 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
                     // Save checkout data from $_POST to the payment 
                     // This is used for Webhooks if they need to update the subscription
                     $checkout_data = PMS_AJAX_Checkout_Handler::get_checkout_data();
-    
+                    $checkout_data['currency'] = !empty( $payment->currency ) ? $payment->currency : pms_get_active_currency();
+
                     pms_add_payment_meta( $payment->id, 'pms_checkout_data', $checkout_data );
                 }
 
                 pms_update_member_subscription_meta( $subscription->id, 'pms_stripe_initial_payment_intent', $payment_intent->id );
 
+                // Maybe send request back to front-end for further actions
                 if( isset( $payment_intent->next_action ) && !is_null( $payment_intent->next_action ) && !empty( $payment_intent->next_action->type ) ){
 
                     if( !empty( $payment->id ) ){   
@@ -356,6 +362,10 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
                             'transaction_id' => $payment_intent->id
                         ) );
                     }
+
+                    // Save the next step to the payment as well
+                    pms_update_payment_meta( $payment->id, 'pms_stripe_next_action', 1 );
+                    pms_update_payment_meta( $payment->id, 'pms_stripe_next_action_intent_id', $payment_intent->id );
 
                     $data = array(
                         'success'              => false,
@@ -908,21 +918,7 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
             pms_update_member_subscription_meta( $member_subscription->id, '_stripe_card_id', $this->stripe_token );
 
-            // Update saved credit card details
-            if( !empty( $payment_method->card ) ){
-
-                if( !empty( $payment_method->card->last4 ) )
-                    pms_update_member_subscription_meta( $member_subscription->id, 'pms_payment_method_number', $payment_method->card->last4 );
-
-                if( !empty( $payment_method->card->brand ) )
-                    pms_update_member_subscription_meta( $member_subscription->id, 'pms_payment_method_type', $payment_method->card->brand );
-
-                if( !empty( $payment_method->card->exp_month ) )
-                    pms_update_member_subscription_meta( $member_subscription->id, 'pms_payment_method_expiration_month', $payment_method->card->exp_month );
-
-                if( !empty( $payment_method->card->exp_year ) )
-                    pms_update_member_subscription_meta( $member_subscription->id, 'pms_payment_method_expiration_year', $payment_method->card->exp_year );
-            }
+            $this->save_payment_method_expiration_data( $member_subscription->id, $payment_method );
 
             pms_add_member_subscription_log( $member_subscription->id, 'subscription_payment_method_updated' );
 
@@ -1355,13 +1351,17 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
         if( !empty( $payment_method ) ){
 
+            if( !empty( $payment_method->type  ) ) {
+                pms_update_member_subscription_meta( $subscription_id, 'pms_payment_method_type', $payment_method->type );
+            }
+
             if( !empty( $payment_method->card ) ){
 
                 if( !empty( $payment_method->card->last4 ) )
                     pms_update_member_subscription_meta( $subscription_id, 'pms_payment_method_number', $payment_method->card->last4 );
 
                 if( !empty( $payment_method->card->brand ) )
-                    pms_update_member_subscription_meta( $subscription_id, 'pms_payment_method_type', $payment_method->card->brand );
+                    pms_update_member_subscription_meta( $subscription_id, 'pms_payment_method_brand', $payment_method->card->brand );
 
                 if( !empty( $payment_method->card->exp_month ) )
                     pms_update_member_subscription_meta( $subscription_id, 'pms_payment_method_expiration_month', $payment_method->card->exp_month );
@@ -1374,6 +1374,19 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
     }
 
+    /**
+     * Process Stripe webhook events
+     *
+     * Handles incoming webhook events from Stripe with optional signature verification.
+     * If a webhook signing secret is configured, the signature will be verified using
+     * Stripe's official library to ensure the webhook is genuinely from Stripe.
+     * This protects against replay attacks and unauthorized webhook submissions.
+     *
+     * If no webhook secret is configured, falls back to legacy verification method
+     * using Stripe\Event::retrieve() for backwards compatibility.
+     *
+     * @return void
+     */
     public function process_webhooks() {
 
         if( !isset( $_GET['pay_gate_listener'] ) || $_GET['pay_gate_listener'] != 'stripe' )
@@ -1384,32 +1397,75 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
         // Get the input
         $input = @file_get_contents("php://input");
-        $event = json_decode( $input );
 
-        // make sure live mode webhooks are processed in live mode
-        if( !empty( $event->livemode ) ){
+        // Get the webhook secret for signature verification
+        $webhook_secret = pms_stripe_connect_get_webhook_secret();
 
-            $api_credentials  = pms_stripe_connect_get_api_credentials();
-            $this->secret_key = ( !empty( $api_credentials['secret_key'] ) ? $api_credentials['secret_key'] : '' );
+        // Get the signature header
+        $sig_header = isset( $_SERVER['HTTP_STRIPE_SIGNATURE'] ) ? $_SERVER['HTTP_STRIPE_SIGNATURE'] : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 
-        }
-
-        // Set API key
-        \Stripe\Stripe::setApiKey( $this->secret_key );
-
-        $event_id = sanitize_text_field( $event->id );
-
-        // Verify that the event was sent by Stripe
-        if( isset( $event->id ) ) {
+        // If webhook secret is configured, use signature verification (recommended)
+        if( !empty( $webhook_secret ) && !empty( $sig_header ) ) {
 
             try {
-                \Stripe\Event::retrieve( $event_id );
-            } catch( Exception $e ) {
-                die();
+                // Verify webhook signature and construct event
+                $event = \Stripe\Webhook::constructEvent(
+                    $input,
+                    $sig_header,
+                    $webhook_secret
+                );
+            } catch( \UnexpectedValueException $e ) {
+                // Invalid payload
+                error_log( '[PMS STRIPE WEBHOOK] Invalid payload: ' . $e->getMessage() );
+                http_response_code( 400 );
+                die('Invalid payload');
+            } catch( \Stripe\Exception\SignatureVerificationException $e ) {
+                // Invalid signature
+                error_log( '[PMS STRIPE WEBHOOK] Invalid signature: ' . $e->getMessage() );
+                http_response_code( 400 );
+                die('Invalid signature');
             }
 
-        } else
-            die();
+            // Determine environment from the event
+            if( !empty( $event->livemode ) ){
+                $api_credentials  = pms_stripe_connect_get_api_credentials();
+                $this->secret_key = ( !empty( $api_credentials['secret_key'] ) ? $api_credentials['secret_key'] : '' );
+            }
+
+            // Set API key
+            \Stripe\Stripe::setApiKey( $this->secret_key );
+
+            $event_id = sanitize_text_field( $event->id );
+
+        } else {
+            // Fall back to legacy verification method (without signature verification)
+            $event = json_decode( $input );
+
+            // make sure live mode webhooks are processed in live mode
+            if( !empty( $event->livemode ) ){
+
+                $api_credentials  = pms_stripe_connect_get_api_credentials();
+                $this->secret_key = ( !empty( $api_credentials['secret_key'] ) ? $api_credentials['secret_key'] : '' );
+
+            }
+
+            // Set API key
+            \Stripe\Stripe::setApiKey( $this->secret_key );
+
+            $event_id = sanitize_text_field( $event->id );
+
+            // Verify that the event was sent by Stripe
+            if( isset( $event->id ) ) {
+
+                try {
+                    \Stripe\Event::retrieve( $event_id );
+                } catch( Exception $e ) {
+                    die();
+                }
+
+            } else
+                die();
+        }
 
         // add an option that we later use to tell the admin that webhooks are configured
         update_option( 'pms_stripe_connect_webhook_connection', strtotime( 'now' ) );
@@ -1840,7 +1896,7 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
      */
     public static function register_form_sections( $sections = array(), $form_location = '' ) {
 
-        if( ! in_array( $form_location, array( 'register', 'new_subscription', 'upgrade_subscription', 'renew_subscription', 'retry_payment', 'change_subscription', 'update_payment_method_stripe_connect', 'update_payment_method_stripe_intents' ) ) )
+        if( ! in_array( $form_location, array( 'payment_gateways_after_paygates', 'update_payment_method_stripe_connect', 'update_payment_method_stripe_intents' ) ) )
             return $sections;
 
         // Add the credit card details if it does not exist
@@ -1870,7 +1926,7 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
      */
     public static function register_form_fields( $fields = array(), $form_location = '' ) {
 
-        if( ! in_array( $form_location, array( 'register', 'new_subscription', 'upgrade_subscription', 'renew_subscription', 'retry_payment', 'change_subscription', 'update_payment_method_stripe_connect', 'update_payment_method_stripe_intents' ) ) )
+        if( ! in_array( $form_location, array( 'payment_gateways_after_paygates', 'update_payment_method_stripe_connect', 'update_payment_method_stripe_intents' ) ) )
             return $fields;
 
 
@@ -1900,6 +1956,13 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
         if( empty( $args ) || empty( $args['amount'] ) )
             return $args;
 
+        if( !empty( $args['currency'] ) ){
+            $minimum_amount = $this->get_minimum_fee_amount( $args['currency'] );
+
+            if( $args['amount'] < $this->process_amount( $minimum_amount, $args['currency'] ) )
+                return $args;
+        }
+
         $account_country      = pms_stripe_connect_get_account_country();
         $restricted_countries = array(
             'AG', 'AL', 'AM', 'AO', 'AR', 'AZ', 'BA', 'BB', 'BD', 'BF', 'BH', 'BJ', 'BN', 'BO', 'BR', 'BS', 'BT', 'BW', 'BZ', 'CI',
@@ -1921,6 +1984,45 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
         return $args;
 
+    }
+
+    private function get_minimum_fee_amount( $currency = '' ){
+
+        $minimum_amounts = array(
+            'USD' => 5.00,
+            'EUR' => 5.00,
+            'GBP' => 5.00,
+            'AUD' => 5.00,
+            'CAD' => 5.00,
+            'CHF' => 5.00,
+            'SEK' => 50.75,
+            'NOK' => 54.50,
+            'DKK' => 32.00,
+            'PLN' => 18.10,
+            'HUF' => 1825,
+            'CZK' => 112.5,
+            'JPY' => 773.1,
+            'SGD' => 6.48,
+            'HKD' => 39.10,
+            'NZD' => 8.20,
+            'AED' => 18.36,
+            'KWD' => 1.54,
+            'BHD' => 1.88,
+            'OMR' => 1.92,
+            'QAR' => 18.20,
+            'TWD' => 157.5,
+            'SAR' => 18.75,
+            'CNY' => 35.356,
+            'UAH' => 180,
+            'MVR' => 77.0,
+            'RON' => 25,
+            'MGA' => 25000
+        );
+
+        if( !empty( $minimum_amounts[$currency] ) )
+            return $minimum_amounts[$currency];
+
+        return 0;
     }
 
     // Random Functionalities

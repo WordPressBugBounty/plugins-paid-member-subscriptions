@@ -783,9 +783,13 @@ Class PMS_Form_Handler {
             return;
 
         // Get member subscription
+        $member              = pms_get_member( get_current_user_id() );
         $member_subscription = pms_get_member_subscription( absint( $_POST['subscription_id'] ) );
 
         if( is_null( $member_subscription ) )
+            return;
+
+        if( ! in_array( $member_subscription->id, $member->get_subscription_ids() ) )
             return;
 
         // Remove subscription if confirm button was pressed
@@ -881,9 +885,13 @@ Class PMS_Form_Handler {
             return;
 
         // Get member subscription
+        $member              = pms_get_member( get_current_user_id() );
         $member_subscription = pms_get_member_subscription( absint( $_POST['subscription_id'] ) );
 
         if( is_null( $member_subscription ) )
+            return;
+
+        if( ! in_array( $member_subscription->id, $member->get_subscription_ids() ) )
             return;
 
         // Remove subscription if confirm button was pressed
@@ -1066,7 +1074,7 @@ Class PMS_Form_Handler {
                 $error_code    = $user->get_error_code();
                 $error_message = $user->get_error_message( $error_code );
 
-                if( $error_code == 'incorrect_password' ){
+                if( in_array( $error_code, array( 'incorrect_password', 'invalid_username' ) ) ){
                     $error_message = '<strong>' . __( 'ERROR:', 'paid-member-subscriptions' ) . '</strong> ';
 
                     if( isset( $_POST['log'] ) && is_email( $_POST['log'] ) )
@@ -1781,10 +1789,13 @@ Class PMS_Form_Handler {
             $subscription_plan = pms_get_subscription_plan( absint( $_POST['subscription_plans'] ) );
         }
 
+        if( empty( $subscription_plan ) )
+            return false;
+
         if( is_user_logged_in() ){
             $user = get_userdata( get_current_user_id() );
     
-            if( !empty( $user->user_email ) ){
+            if( !empty( $user ) && !empty( $user->user_email ) ){
     
                 $used_trial = get_option( 'pms_used_trial_' . $subscription_plan->id, false );
 
@@ -1794,7 +1805,8 @@ Class PMS_Form_Handler {
             }
         }
 
-        return true;
+        return apply_filters( 'pms_checkout_user_can_access_trial', true, $subscription_plan );
+
     }
 
 
@@ -1914,7 +1926,7 @@ Class PMS_Form_Handler {
         $user_data['subscription'] = $subscription_plan;
 
         // Set recurring value
-        $is_recurring         = self::checkout_is_recurring();
+        $is_recurring         = apply_filters( 'pms_checkout_is_recurring', self::checkout_is_recurring(), $user_data, $subscription_plan, $form_location, $pay_gate );
         $has_trial            = self::checkout_has_trial();
         $gateway_supports_psp = !is_null( $payment_gateway ) && $payment_gateway->supports( 'plugin_scheduled_payments' ) ? true : false;
 
@@ -1958,7 +1970,7 @@ Class PMS_Form_Handler {
          * Insert the subscription into the db
          *
          */
-        if( in_array( $form_location, array( 'register', 'new_subscription', 'register_email_confirmation' ) ) ) {
+        if( in_array( $form_location, array( 'register', 'new_subscription', 'register_email_confirmation', 'gift_subscription' ) ) ) {
 
             /**
              * We can't assume that this won't get executed multiple times. ( on PB registration if we had the field multiple times this executed as many times as the number of fields
@@ -2132,6 +2144,9 @@ Class PMS_Form_Handler {
              */
             $payment_data = apply_filters( 'pms_process_checkout_payment_data', $payment_data, $checkout_data );
 
+            // Add subscription id to payment data so it gets saved to meta
+            $payment_data['member_subscription_id'] = $subscription->id;
+
             /**
              * Insert the payment into the db
              *
@@ -2144,9 +2159,6 @@ Class PMS_Form_Handler {
                 $payment->insert( $payment_data );
 
                 $payment_gateway_data['payment_id'] = $payment->id;
-
-                // Save subscription id as payment meta
-                pms_add_payment_meta( $payment->id, 'subscription_id', $subscription->id, true );
 
             }
 
@@ -2258,6 +2270,9 @@ Class PMS_Form_Handler {
 
             $subscription_data['status'] = 'active';
 
+            // Filter subscription data just before updating the subscription
+            $subscription_data = apply_filters( 'pms_checkout_subscription_data_before_update', $subscription_data, $subscription, $form_location );
+
             // Handle each subscription by the form location
             switch( $form_location ) {
 
@@ -2305,6 +2320,21 @@ Class PMS_Form_Handler {
                 case 'change_subscription':
 
                     do_action( 'pms_psp_before_'. $form_location, $subscription, isset( $payment ) ? $payment : 0, $subscription_data );
+
+                    if( isset( $has_trial ) && $has_trial == true && isset( $register_automatic_billing_info_response ) && $register_automatic_billing_info_response == true ){
+                        pms_add_member_subscription_log( $subscription->id, 'subscription_trial_started', array( 'until' => $subscription_data['trial_end'] ) );
+
+                        // Save email when trial is used
+                        $user       = get_userdata( $user_data['user_id'] );
+                        $used_trial = get_option( 'pms_used_trial_' . $subscription_plan->id, false );
+
+                        if( $used_trial == false )
+                            $used_trial = array( $user->user_email );
+                        else
+                            $used_trial[] = $user->user_email;
+
+                        update_option( 'pms_used_trial_' . $subscription_plan->id, $used_trial, false );
+                    }
 
                     $context = 'change';
 
@@ -2372,6 +2402,15 @@ Class PMS_Form_Handler {
                     pms_add_member_subscription_log( $subscription->id, 'subscription_renewed_manually', array( 'until' => $expiration_date ) );
 
                     pms_delete_member_subscription_meta( $subscription->id, 'pms_retry_payment' );
+
+                    break;
+
+                // gift subscriptions form
+                case 'gift_subscription':
+
+                    $subscription->update( $subscription_data );
+
+                    do_action( 'pms_gift_subscription_form_after_subscription_update', $subscription, $subscription_data );
 
                     break;
 
@@ -2452,7 +2491,7 @@ Class PMS_Form_Handler {
             } else {
 
                 if ( isset( $payment ) && isset( $payment->id ) )
-                    $success_redirect_link = add_query_arg( array( 'pmsscscd' => base64_encode( 'subscription_plans' ), 'pms_gateway_payment_action' => base64_encode( $form_location ), 'pms_gateway_payment_id' => base64_encode( $payment->id ) ), self::get_redirect_url() );
+                    $success_redirect_link = add_query_arg( array( 'pmsscscd' => base64_encode( 'subscription_plans' ), 'pms_gateway_payment_action' => base64_encode( $form_location ), 'pms_gateway_payment_id' => base64_encode( $payment->id ), 'subscription_plan_id' => base64_encode( $payment->subscription_id ) ), self::get_redirect_url() );
                 else
                     $success_redirect_link = add_query_arg (array( 'pmsscscd' => base64_encode( 'subscription_plans' ), 'pms_gateway_payment_action' => base64_encode( $form_location ) ), self::get_redirect_url() );
 
@@ -2463,9 +2502,28 @@ Class PMS_Form_Handler {
 
         } else {
 
-            // This is a WPPB form and this situation is reached when the checkout is using PayPal. The pms_pb_save_subscription_plans_value function is executing the checkout process from PMS.
-            // Errors are handled separately in the AJAX Checkout Class
+            // This is a WPPB form. The pms_pb_save_subscription_plans_value function is executing the checkout process from PMS and it short-circuits the Profile Builder form processing.
+            // The Subscription Plans field is always the last one to process, so all the other fields were already saved.
             if( wp_doing_ajax() && isset( $_REQUEST['form_type'] ) && $_REQUEST['form_type'] == 'wppb' ){
+
+                // Since the WPPB process is ended abruptly, the registration email is not sent, we need to send it manually from here
+                if( function_exists( 'wppb_notify_user_registration_email' ) ){
+                    if( empty( $user_id ) && !empty( $user_data['user_id'] ) )
+                        $user_id = $user_data['user_id'];
+
+                    if ( !empty( $user_id ) ){
+                        //$wppb_general_settings = get_option( 'wppb_general_settings' );
+                        
+                        $form = pms_wppb_get_form( isset( $_REQUEST['form_name'] ) ? sanitize_text_field( $_REQUEST['form_name'] ) : '' );
+
+                        if( ( isset( $_REQUEST['send_credentials_via_email'] ) && ( $_REQUEST['send_credentials_via_email'] == 'sending' ) ) || apply_filters( 'wppb_register_send_credentials_via_email', false, $user_id, $form->args ) )
+                            $send_credentials_via_email = 'sending';
+                        else
+                            $send_credentials_via_email = '';
+
+                        wppb_notify_user_registration_email( get_bloginfo( 'name' ), ( isset( $user_data['user_login'] ) ? trim( $user_data['user_login'] ) : trim( $user_data['user_email'] ) ), trim( $user_data['user_email'] ), $send_credentials_via_email, trim( $user_data['user_pass'] ), ( wppb_get_admin_approval_option_value() === 'yes' ? 'yes' : 'no' ) );
+                    }
+                }
 
                 $payment_id = isset( $payment ) && isset( $payment->id ) ? $payment->id : 0;
 
@@ -2521,7 +2579,7 @@ Class PMS_Form_Handler {
         );
 
         // Add start date for new subscriptions
-        if( in_array( $form_location, array( 'register', 'new_subscription', 'register_email_confirmation' ) ) )
+        if( in_array( $form_location, array( 'register', 'new_subscription', 'register_email_confirmation', 'gift_subscription' ) ) )
             $subscription_data['start_date'] = date('Y-m-d H:i:s');
 
         // Add trial data

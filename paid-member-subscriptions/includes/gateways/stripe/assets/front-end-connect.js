@@ -1,7 +1,12 @@
-jQuery( async function( $ ) {
+/**
+ * Initialize Stripe Connect payment gateway
+ * @param {jQuery} $ - jQuery instance
+ */
+async function pms_stripe_maybe_load_gateway( $ ) {
 
-    if( !( $('#stripe-pk').length > 0 ) )
+    if( !( $('#stripe-pk').length > 0 ) ){
         return false
+    }
 
     var stripe_pk = $( '#stripe-pk' ).val()
 
@@ -26,6 +31,8 @@ jQuery( async function( $ ) {
     var $elements_instance_slug = ''
 
     var cardIsEmpty = true
+    var recreating_payment_element = false
+    var email_change_debounce_timer = null
 
     var subscription_plan_selector = 'input[name=subscription_plans]'
     var paygate_selector           = 'input.pms_pay_gate'
@@ -96,23 +103,6 @@ jQuery( async function( $ ) {
             await pms_stripe_validate_sdk_checkout_currency( $(this) );
         }
 
-        let subscription_plan = $(this)
-        
-        if( subscription_plan.data('recurring') == 0 || subscription_plan.data('recurring') == 1 ){
-
-            // Verify renew checkbox status and update the payment element accordingly
-            if( $('.pms-subscription-plan-auto-renew input[name="pms_recurring"]').prop('checked') ){
-                elements.update( { setupFutureUsage: 'off_session' } );
-            } else {
-                elements.update( { setupFutureUsage: null } );
-            }
-
-        } else if( subscription_plan.data('recurring') == 2 ){
-            elements.update( { setupFutureUsage: 'off_session' } );
-        } else if( subscription_plan.data('recurring') == 3 ){
-            elements.update( { setupFutureUsage: null } );
-        }
-
         stripeConnectInit()
 
     })
@@ -123,6 +113,51 @@ jQuery( async function( $ ) {
             elements.update( { setupFutureUsage: 'off_session' } );
         } else {
             elements.update( { setupFutureUsage: null } );
+        }
+
+    })
+
+    // This was added for Link support.
+    // After the user email is entered, the payment element is destroyed and then recreated using the new parameters.
+    $(document).on('change', '.pms-form .pms-user-email-field input[name="user_email"], .wppb-register-user input[name="email"], .pms-form .pms-billing-details input[name="pms_billing_email"]', function ( event ) {
+
+        // Skip if already recreating
+        if( recreating_payment_element ){
+            return
+        }
+
+        let element = $(this)
+        let email = $(this).val()
+
+        // Clear any pending debounce timer
+        if( email_change_debounce_timer ){
+            clearTimeout( email_change_debounce_timer )
+        }
+
+        if( email.length > 0 ){
+            
+            // Disable the input to prevent multiple submissions
+            element.attr('disabled', true)
+            
+            pms_stripe_show_spinner()
+
+            email_change_debounce_timer = setTimeout( function(){
+                
+                recreating_payment_element = true
+
+                // Only destroy if element exists
+                if( $payment_element && $payment_element != '' ){
+                    $payment_element.destroy()
+                    $payment_element = ''
+                }
+
+                setTimeout( function(){
+                    stripeConnectInit()
+                    element.attr('disabled', false)
+                    recreating_payment_element = false
+                }, 300 )
+
+            }, 250 )
         }
 
     })
@@ -171,8 +206,6 @@ jQuery( async function( $ ) {
 
     // WPPB Recaptcha
     $(document).on( 'wppb_invisible_recaptcha_success', stripeConnectPaymentGatewayHandler )
-    //$(document).on( 'wppb_v3_recaptcha_success', stripeConnectPaymentGatewayHandler )
-    //$(document).on( 'pms_v3_recaptcha_success', stripeConnectPaymentGatewayHandler ) // ????
 
     $(document).on('submit', '.pms-form', async function (e) {
 
@@ -542,6 +575,30 @@ jQuery( async function( $ ) {
 
         let selected_subscription = jQuery( subscription_plan_selector + '[type=radio]' ).length > 0 ? jQuery( subscription_plan_selector + '[type=radio]:checked' ) : jQuery( subscription_plan_selector + '[type=hidden]' )
 
+        // Handle Setup Future Usage parameter
+        if( selected_subscription.data('recurring') == 0 || selected_subscription.data('recurring') == 1 ){
+
+            let default_recurring = $('input[type="hidden"][name="pms_default_recurring"]').val()
+
+            if( default_recurring == 2 ){
+                elements.update( { setupFutureUsage: 'off_session' } );
+            } else if ( default_recurring == 3 ){
+                elements.update( { setupFutureUsage: null } );
+            } else {
+                // Verify renew checkbox status and update the payment element accordingly
+                if( $('.pms-subscription-plan-auto-renew input[name="pms_recurring"]').prop('checked') ){
+                    elements.update( { setupFutureUsage: 'off_session' } );
+                } else {
+                    elements.update( { setupFutureUsage: null } );
+                }
+            }
+
+        } else if( selected_subscription.data('recurring') == 2 ){
+            elements.update( { setupFutureUsage: 'off_session' } );
+        } else if( selected_subscription.data('recurring') == 3 ){
+            elements.update( { setupFutureUsage: null } );
+        }
+
         if( target_elements_instance != false ){
 
             if( $payment_element == '' ){
@@ -551,13 +608,19 @@ jQuery( async function( $ ) {
                     // Use default price if custom currency price is unavailable
                     let price = (selected_subscription.data('mc_price') !== undefined && selected_subscription.data('mc_price') !== null) ? selected_subscription.data('mc_price') : selected_subscription.data('price');
 
+                    // Take into account sign-up fees as well
+                    if( selected_subscription.data('sign_up_fee') !== undefined && selected_subscription.data('sign_up_fee') !== null && selected_subscription.data('sign_up_fee') !== '' && selected_subscription.data('sign_up_fee') !== '0' ){
+                        price = price + selected_subscription.data('sign_up_fee');
+                    }
 
                     if( price > 0 ){
                         target_elements_instance.update( { amount: pms_stripe_convert_amount_to_cents( price ) } );
                     }
                 }
-
-                $payment_element = target_elements_instance.create( "payment" )
+            
+                let default_values = pms_stripe_get_default_values()
+                
+                $payment_element = target_elements_instance.create( "payment", default_values )
                 $payment_element.mount("#pms-stripe-payment-elements")
 
                 // Show credit card form error messages to the user as they happpen
@@ -571,16 +634,23 @@ jQuery( async function( $ ) {
                     // Use default price if custom currency price is unavailable
                     let price = (selected_subscription.data('mc_price') !== undefined && selected_subscription.data('mc_price') !== null) ? selected_subscription.data('mc_price') : selected_subscription.data('price');
 
+                    // Take into account sign-up fees as well
+                    if( selected_subscription.data('sign_up_fee') !== undefined && selected_subscription.data('sign_up_fee') !== null && selected_subscription.data('sign_up_fee') !== '' && selected_subscription.data('sign_up_fee') !== '0' ){
+                        price = price + selected_subscription.data('sign_up_fee');
+                    }
+
                     if( price > 0 ){
                         target_elements_instance.update( { amount: pms_stripe_convert_amount_to_cents( price ) } );
                     }
                 }
 
+                let default_values = pms_stripe_get_default_values()
+
                 if( $elements_instance_slug != target_elements_instance_slug ){
 
                     $payment_element.destroy()
 
-                    $payment_element = target_elements_instance.create( "payment" )
+                    $payment_element = target_elements_instance.create( "payment", default_values )
                     $payment_element.mount("#pms-stripe-payment-elements")
 
                     // Show credit card form error messages to the user as they happpen
@@ -895,7 +965,7 @@ jQuery( async function( $ ) {
         ];
 
         // If currency is not in zero-decimal list, multiply by 100
-        if ( !zero_decimal_currencies.includes( currency ) ) {
+        if ( !zero_decimal_currencies.includes( currency.toUpperCase() ) ) {
             amount = amount * 100;
         }
 
@@ -950,4 +1020,73 @@ jQuery( async function( $ ) {
 
     }
 
+    function pms_stripe_get_default_values(){
+
+        if( jQuery('body').hasClass( 'logged-in' ) && pms.pms_customer_email ){
+            var user_email = pms.pms_customer_email
+        } else {
+            var user_email = $( '.pms-form input[name="user_email"], .wppb-register-user input[name="email"]' ).val()
+        }
+
+        let name = ''
+
+        if( jQuery('body').hasClass( 'logged-in' ) && pms.pms_customer_name ){
+            name = pms.pms_customer_name
+        } else {
+            if( $( '.pms-billing-details input[name="pms_billing_first_name"]' ).length > 0 )
+                name = name + $( '.pms-billing-details input[name="pms_billing_first_name"]' ).val() + ' '
+            else if( $( '.pms-form input[name="first_name"], .wppb-user-forms input[name="first_name"]' ).length > 0 )
+                name = name + $( '.pms-form input[name="first_name"], .wppb-user-forms input[name="first_name"]' ).val() + ' '
+    
+            if( $( '.pms-billing-details input[name="pms_billing_last_name"]' ).length > 0 )
+                name = name + $( '.pms-billing-details input[name="pms_billing_last_name"]' ).val()
+            else if( $( '.pms-form input[name="last_name"], .wppb-user-forms input[name="last_name"]' ).length > 0 )
+                name = name + $( '.pms-form input[name="last_name"], .wppb-user-forms input[name="last_name"]' ).val()
+        }
+
+        if( typeof user_email != 'undefined' && user_email.length > 0 ){
+            var default_values = {
+                defaultValues: {
+                    billingDetails: {
+                        email: user_email,
+                        name : name.length > 0 ? name : null
+                    }
+                }
+            }
+        } else {
+            var default_values = {}
+        }
+
+        return default_values
+
+    }
+
+}
+
+// Initialize Stripe Connect when document is ready
+jQuery( pms_stripe_maybe_load_gateway );
+
+// Maybe initialize Stripe when Elementor popup is shown
+jQuery(document).on('elementor/popup/show', function () {
+    if ( jQuery('.pms-form #pms-stripe-connect', jQuery('.elementor-popup-modal') ).length > 0 ) {
+        pms_stripe_maybe_load_gateway( jQuery )
+
+        // By default, the regular submit event of the form is not triggered when the button is clicked inside the popup.
+        // We simulate a submit event to trigger the form submission on the click event.
+        document.addEventListener('click', function (ev) {
+            const btn = ev.target.closest('input[type="submit"], button[type="submit"]');
+            if (!btn) return;
+            const form = btn.form || btn.closest('form');
+            if (!form) return;
+            if (!form.classList.contains('pms-form')) return;
+        
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+        
+            const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+            form.dispatchEvent(submitEvent);
+          }, true);
+    }
 });
+
+  

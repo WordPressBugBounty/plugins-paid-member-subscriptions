@@ -237,6 +237,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
     add_action( 'pms_retry_payment_form_bottom', 'pms_add_hidden_submit_button_loading_placeholder_text' );
     add_action( 'pms_ppe_confirm_form_bottom', 'pms_add_hidden_submit_button_loading_placeholder_text' );
     add_action( 'pms_update_payment_method_form_bottom', 'pms_add_hidden_submit_button_loading_placeholder_text' );
+    add_action( 'pms_gift_subscription_form_bottom', 'pms_add_hidden_submit_button_loading_placeholder_text' );
 
 
     /**
@@ -1208,6 +1209,35 @@ if ( ! defined( 'ABSPATH' ) ) exit;
             }
         }
 
+        /**
+         * Add a notice when the website currency is BGN
+        */
+        if( !pms_is_payment_test_mode() ){
+
+            $currency = pms_get_active_currency();
+
+            if( $currency === 'BGN' ){
+
+                $message = '<p>' . sprintf( __( '%sOn January 1, 2026, Bulgaria will join the Eurozone and the Bulgarian Leva (BGN) will be deprecated in favor of the Euro (EUR).%s<br><br>In order for payments to work correctly after that date, %syou need to switch the current active currency to EUR%s by going to %sPaid Member Subscriptions -> Settings -> Payments -> Currency%s.<br>The price of your Subscription Plans should also be updated to reflect this transition by going to the %sPaid Member Subscriptions -> Subscription Plans%s page.<br><br>Your recurring payments in BGN will be automatically converted to EUR after %s29.12.2025%s at the official fixed currency exchange rate of %s1.95583 BGN = 1 EUR%s.', 'paid-member-subscriptions' ), '<strong>', '</strong>', '<strong>', '</strong>', '<a href="'. admin_url( 'admin.php?page=pms-settings-page&tab=payments&nav_sub_tab=payments_general' ) .'">', '</a>', '<a href="'. admin_url( 'edit.php?post_type=pms-subscription' ) .'">', '</a>', '<strong>', '</strong>', '<strong>', '</strong>', '<strong>', '</strong>', '<strong>', '</strong>' ) . '</p>';
+
+                if( isset( $_REQUEST['page'] ) && $_REQUEST['page'] === 'pms-settings-page' ) {
+        
+                    new PMS_Add_General_Notices( 'pms_bgn_currency_migration_own_pages',
+                        $message,
+                        'notice-error');
+        
+                } else {
+        
+                    new PMS_Add_General_Notices( 'pms_bgn_currency_migration',
+                        sprintf( $message . __( ' %1$sDismiss%2$s', 'paid-member-subscriptions'), "<a href='" . wp_nonce_url( add_query_arg( 'pms_stripe_connect_disconnected_dismiss_notification', '0' ), 'pms_general_notice_dismiss' ) . "' type='button' class='notice-dismiss'><span class='screen-reader-text'>", "</span></a>"),
+                        'notice-error');
+        
+                }
+
+            }
+            
+        }
+
 
         /**
          * Adds a dismissable admin notice on all WordPress pages and a non-dismissable admin notice on PMS's
@@ -1393,10 +1423,10 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
                 if ( defined( 'PMS_PAID_PLUGIN_DIR' ) && $license_status == 'expired' ){
                     $message .= '<div><p style="font-size: 110%;margin-top:0px;margin-bottom:4px;padding:0px;">' . '<strong>Renew your Paid Member Subscriptions license this Black Friday!</strong>' . '</p>';
-                    $message .= '<p style="font-size: 110%;margin-top:0px;margin-bottom: 0px;padding:0px;">Don\'t miss out on our <strong>best prices & only sale of the year</strong>. <br><a class="button-primary" style="margin-top:6px;" href="https://www.cozmoslabs.com/account/?utm_source=pms-settings&utm_medium=clientsite&utm_campaign=BF-2025" target="_blank">Get Deal</a></p></div>';
+                    $message .= '<p style="font-size: 110%;margin-top:0px;margin-bottom: 0px;padding:0px;">Don\'t miss out on our <strong>best prices & only sale of the year</strong>. <br><a class="button-primary" style="margin-top:6px;" href="https://www.cozmoslabs.com/account/?utm_source=pms-settings&utm_medium=client-site&utm_campaign=pms-bf-2025-renewal" target="_blank">Get Deal</a></p></div>';
                 } else {
                     $message .= '<div><p style="font-size: 110%;margin-top:0px;margin-bottom:4px;padding:0px;">' . '<strong>Get the best price for Paid Member Subscriptions PRO this Black Friday</strong>!' . '</p>';
-                    $message .= '<p style="font-size: 110%;margin-top:0px;margin-bottom: 0px;padding:0px;">This is a <strong>limited-time offer</strong>, so don\'t miss out on our <strong>only sale of the year</strong>. <br><a class="button-primary" style="margin-top:6px;" href="https://www.cozmoslabs.com/black-friday/?utm_source=pms-settings&utm_medium=clientsite&utm_campaign=BF-2025" target="_blank">Get Deal</a></p></div>';
+                    $message .= '<p style="font-size: 110%;margin-top:0px;margin-bottom: 0px;padding:0px;">This is a <strong>limited-time offer</strong>, so don\'t miss out on our <strong>only sale of the year</strong>. <br><a class="button-primary" style="margin-top:6px;" href="https://www.cozmoslabs.com/black-friday/?utm_source=pms-settings&utm_medium=client-site&utm_campaign=pms-bf-2025" target="_blank">Get Deal</a></p></div>';
                 }
 
                 $message .= '</div><a href="' . esc_url( wp_nonce_url( add_query_arg( array( 'pms_dismiss_admin_notification' => $notification_id ) ), 'pms_plugin_notice_dismiss' ) ) . '" type="button" class="notice-dismiss"><span class="screen-reader-text">' . __( 'Dismiss this notice.', 'paid-member-subscriptions' ) . '</span></a>';
@@ -1424,9 +1454,9 @@ if ( ! defined( 'ABSPATH' ) ) exit;
                     $message = '<img style="float: left; margin: 10px 8px 10px 0px; max-width: 20px;" src="' . PMS_PLUGIN_DIR_URL . 'assets/images/pms-logo.svg" />';
                     
                     if ( defined( 'PMS_PAID_PLUGIN_DIR' ) && $license_status == 'expired' )
-                        $message .= '<p style="padding-right:30px;font-size: 110%;"><strong>Upgrade to Paid Member Subscriptions PRO this Black Friday!</strong> Don\'t miss our only sale of the year. <a href="https://www.cozmoslabs.com/black-friday/?utm_source=wpdashboard&utm_medium=clientsite&utm_campaign=BF-2025" target="_blank">Learn more</a></p>';
+                        $message .= '<p style="padding-right:30px;font-size: 110%;"><strong>Upgrade to Paid Member Subscriptions PRO this Black Friday!</strong> Don\'t miss our only sale of the year. <a href="https://www.cozmoslabs.com/account/?utm_source=wp-dashboard&utm_medium=client-site&utm_campaign=pms-bf-2025-renewal" target="_blank">Learn more</a></p>';
                     else
-                        $message .= '<p style="padding-right:30px;font-size: 110%;"><strong>Upgrade to Paid Member Subscriptions PRO this Black Friday!</strong> Don\'t miss our only sale of the year. <a href="https://www.cozmoslabs.com/black-friday/?utm_source=wpdashboard&utm_medium=clientsite&utm_campaign=BF-2025" target="_blank">Learn more</a></p>';
+                        $message .= '<p style="padding-right:30px;font-size: 110%;"><strong>Upgrade to Paid Member Subscriptions PRO this Black Friday!</strong> Don\'t miss our only sale of the year. <a href="https://www.cozmoslabs.com/black-friday/?utm_source=wp-dashboard&utm_medium=client-site&utm_campaign=pms-bf-2025" target="_blank">Learn more</a></p>';
                     
                     $message .= '<a href="' . esc_url( wp_nonce_url( add_query_arg( array( 'pms_dismiss_admin_notification' => $notification_id ) ), 'pms_plugin_notice_dismiss' ) ) . '" type="button" class="notice-dismiss"><span class="screen-reader-text">' . __( 'Dismiss this notice.', 'paid-member-subscriptions' ) . '</span></a>';
             
