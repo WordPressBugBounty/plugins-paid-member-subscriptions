@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__b1dfb17e-e2e7-4408-9433-bb75ef95ee0e__clickup_get_task",
+      "Bash(git -C /home/moonbas3/dev/www/cozmoslabs-ddev/paidmembersubscriptions/wp-content/plugins/paid-member-subscriptions-dev log master..HEAD --oneline)",
+      "Bash(git -C /home/moonbas3/dev/www/cozmoslabs-ddev/paidmembersubscriptions/wp-content/plugins/paid-member-subscriptions-dev diff master...HEAD --stat)",
+      "Bash(git -C /home/moonbas3/dev/www/cozmoslabs-ddev/paidmembersubscriptions/wp-content/plugins/paid-member-subscriptions-dev log --oneline -5)",
+      "Bash(git -C /home/moonbas3/dev/www/cozmoslabs-ddev/paidmembersubscriptions/wp-content/plugins/paid-member-subscriptions-dev branch --show-current)",
+      "Bash(git -C /home/moonbas3/dev/www/cozmoslabs-ddev/paidmembersubscriptions/wp-content/plugins/paid-member-subscriptions-dev diff --stat master -- includes/functions-payment.php)",
+      "Bash(git -C /home/moonbas3/dev/www/cozmoslabs-ddev/paidmembersubscriptions/wp-content/plugins/paid-member-subscriptions-dev diff master -- includes/functions-payment.php)",
+      "Bash(grep -n 'addons\\\\s*=\\\\|add_ons\\\\s*=\\\\|$pms_.*=\\\\s*array\\\\|'\\\\''pro'\\\\''\\\\|'\\\\''agency'\\\\''\\\\|'\\\\''basic'\\\\''\\\\|Pro\\\\b' includes/admin/views/view-page-addons.php)",
+      "Bash(grep -n 'order_summary\\\\|enable\\\\|pms_misc_settings\\\\|should_output\\\\|is_enabled\\\\|self::$enabled\\\\|function enable\\\\|function output\\\\|function get_output' /home/moonbas3/dev/www/cozmoslabs-ddev/paidmembersubscriptions/wp-content/plugins/paid-member-subscriptions-dev/includes/class-order-summary.php)",
+      "WebSearch",
+      "WebFetch(domain:wordpress.org)"
+    ]
+  }
+}
