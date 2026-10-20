@@ -5,7 +5,7 @@ Tags: membership, paid membership, subscription, content restriction, membership
 Requires at least: 3.1
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.1.2
+Stable tag: 3.1.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -154,6 +154,7 @@ Paid Member Subscriptions has a range of premium [Add-ons](https://www.cozmoslab
 
 **Pro Add-ons** (available in the [Agency & PRO versions](https://www.cozmoslabs.com/wordpress-paid-member-subscriptions/?utm_source=wp.org&utm_medium=pms-description-page&utm_campaign=PMSFree#pricing) only)
 
+* [Order Bumps](https://www.cozmoslabs.com/add-ons/order-bumps/?utm_source=wp.org&utm_medium=pms-description-page&utm_campaign=PMSFree) - Let members add extra subscription plans to their order at checkout and pay in a single transaction. Increase average order value with configurable order bumps and optional discounts
 * [Gift Subscriptions](https://www.cozmoslabs.com/add-ons/gift-subscriptions/?utm_source=wp.org&utm_medium=pms-description-page&utm_campaign=PMSFree) - Let members purchase subscription plans as gifts for others. Perfect for holidays, special occasions, or rewarding team members with instant or claimable subscriptions
 * [Pause Subscriptions](https://www.cozmoslabs.com/add-ons/pause-subscriptions/?utm_source=wp.org&utm_medium=pms-description-page&utm_campaign=PMSFree) - Allow members to temporarily pause recurring subscriptions without canceling. Maintain membership relationships while billing is suspended with flexible pause durations and limits
 * [Multiple Currencies](https://www.cozmoslabs.com/add-ons/multiple-currencies/?utm_source=wp.org&utm_medium=pms-description-page&utm_campaign=PMSFree) - Enable visitors to pay in their local currency, either through automatic location detection or by manually selecting their preferred currency
@@ -247,6 +248,8 @@ Yes! Users can pay with a credit or debit card without leaving your website thro
 
 Through Stripe you can also access additional payment gateways like iDeal, Bancontact, Giropay and more.
 
+The free version includes a 2% fee on all Stripe transactions, on top of Stripe's own processing fees. This fee supports the development of the plugin and is removed when you use a [paid version](https://www.cozmoslabs.com/wordpress-paid-member-subscriptions/?utm_source=wp.org&utm_medium=pms-description-page&utm_campaign=PMSFree#pricing) of Paid Member Subscriptions with a valid license.
+
 = Can my members pay using Apple Pay or Google Pay? =
 
 Users can pay using Apple Pay and Google Pay by using the Stripe payment gateway and enabling these Payment Methods. [Learn More](https://www.cozmoslabs.com/docs/paid-member-subscriptions/payment-gateways/stripe-connect/?utm_source=wp.org&utm_medium=pms-description-page&utm_campaign=PMSFree#Apple_Pay_and_Google_Pay)
@@ -279,13 +282,15 @@ Please report security bugs found in the source code of the Paid Member Subscrip
 15. Available Add-ons for extending your membership site
 
 == Changelog ==
-= 3.1.2 =
-* Fix: Improve security for the Members and Payments list queries. Thanks to Deva Parekh and the Patchstack team for the report
-* Fix: Stripe Connect checkouts with Alipay, WeChat Pay and voucher methods such as Multibanco work correctly now
-* Fix: Members and Payments admin scripts were loading twice
-* Fix: Edit Subscription no longer breaks when the subscription has no payment gateway, which stopped Add Log from adding an entry
-* Fix: Admin list table cells keep body styling on WordPress 7.1, which now renders the primary column as a header cellPaid Member Subscriptions Agency, Pro, Unlimited 1.9.17
-* Fix: Group Memberships - Editing a group from Group Details on WordPress 7.1 now saves the group name and description
-* Fix: Group Memberships - Group name and description now appear when changing an existing subscription to a group plan
+= 3.1.3 =
+* Enhancement: Stripe Connect recurring Apple Pay checkouts request a merchant token so renewals keep working after a device change, and the Apple Pay sheet shows the amount that will be billed
+* Fix: Security issue regarding checkout with an unknown or inactive payment gateway. Thanks to Taegyeong Yun and the Patchstack team for the report
+* Fix: Stripe Connect redirect payments such as MobilePay now apply the new plan when an upgrade completes, and the payment log describes the redirect instead of showing Something went wrong
+* Fix: Stripe Connect webhooks can complete 3D Secure and redirect payments when the browser does not finish the checkout
+* Fix: Correctly handle PayPal Connect payments which return with a pending status initially
+* Fix: Fatal error in the Register block when subscription plan IDs are typed in the Advanced panel
+* Fix: TutorLMS category select on the subscription plan was cut off after a few categories
+* Misc: Added a filter to bypass PayPal Standard IPN amount verification: pms_paypal_ipn_bypass_amount_verification
+* Misc: Compatibility with invoice totals that follow the charged payment
 
 [Click Here](https://www.cozmoslabs.com/docs/paid-member-subscriptions/free-changelog/?utm_source=wp.org&utm_medium=pms-description-page&utm_campaign=PMSFree) to view the full changelog.
