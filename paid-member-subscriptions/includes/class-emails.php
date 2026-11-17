@@ -250,10 +250,10 @@ Class PMS_Emails {
         if( empty( $settings['reset_password_is_enabled'] ) ){
 
             $email_default_subjects = PMS_Emails::get_default_email_subjects( 'user' );
-            $email_content = PMS_Merge_Tags::process_merge_tags( $email_default_subjects['reset_password'], $user_data );
+            $email_content = PMS_Merge_Tags::process_subject_merge_tags( $email_default_subjects['reset_password'], $user_data );
         }
         else{
-            $email_content = PMS_Merge_Tags::process_merge_tags( $settings['reset_password_sub_subject'], $user_data );
+            $email_content = PMS_Merge_Tags::process_subject_merge_tags( $settings['reset_password_sub_subject'], $user_data );
         }
 
         return $email_content;
@@ -372,7 +372,7 @@ Class PMS_Emails {
             $subscription_id = 0;
         }
 
-        $email_subject = PMS_Merge_Tags::process_merge_tags( $email_subject, $user_info, $subscription_id, $payment_id, $action );
+        $email_subject = PMS_Merge_Tags::process_subject_merge_tags( $email_subject, $user_info, $subscription_id, $payment_id, $action );
         $email_content = PMS_Merge_Tags::process_merge_tags( $email_content, $user_info, $subscription_id, $payment_id, $action );
 
         if( apply_filters( 'pms_emails_auto_format', true, $action ) )

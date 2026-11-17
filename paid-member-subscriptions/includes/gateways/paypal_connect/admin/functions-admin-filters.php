@@ -41,7 +41,11 @@ function pms_ppcp_add_settings_content( $options ){
                             . esc_html__( 'Connect your existing PayPal account or create a new one to start accepting payments. Press the button above to start.', 'paid-member-subscriptions' ) .
                             '<br>'
                             . esc_html__( 'You will be redirected back here once the process is completed.', 'paid-member-subscriptions' ) .
-                            '<p>';
+                            '</p>';
+                        echo '<p id="pms-paypal-connect-coop-warning" class="cozmoslabs-paypal-connect__coop-warning" hidden>'
+                            /* translators: 1: the response header name and value, 2: the recommended header value */
+                            . wp_kses_post( sprintf( __( '<strong>Warning:</strong> your website sends the %1$s header, which stops the PayPal window from reporting back to this page, so the connection cannot be completed. Change it to %2$s, or remove it, in your security plugin, server or CDN settings, then connect again.', 'paid-member-subscriptions' ), '<code>Cross-Origin-Opener-Policy: same-origin</code>', '<code>same-origin-allow-popups</code>' ) ) .
+                            '</p>';
 
                     else :
 
@@ -293,6 +297,13 @@ function pms_ppcp_process_onboarding(){
 	}
 
 }
+
+/**
+ * Request target for the Gateways page's Cross-Origin-Opener-Policy check. Any registered handler makes admin-ajax answer 200 instead of 400,
+ * which keeps the console clean and gets headers that servers only add to successful responses (nginx add_header).
+ *
+ */
+add_action( 'wp_ajax_pms_ppcp_check_headers', '__return_null' );
 
 /**
  * Disconnect Merchant from PayPal Connect

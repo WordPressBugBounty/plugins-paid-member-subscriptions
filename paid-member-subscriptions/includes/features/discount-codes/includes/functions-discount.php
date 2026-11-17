@@ -390,7 +390,16 @@ function pms_in_dc_check_is_full_discount( $code = '', $subscription_plan_id = 0
         $subscription_plan->price = (float)$pwyw_price;
     }
 
-    $discounted_amount = pms_in_calculate_discounted_amount( $subscription_plan->price, $discount_code );
+    $form_location = PMS_Form_Handler::get_request_form_location( isset( $_REQUEST['pmstkn'] ) ? 'pmstkn' : 'pmstkn_original' );
+    $signup_fee    = 0;
+
+    if( in_array( $form_location, apply_filters( 'pms_checkout_signup_fee_form_locations', array( 'register', 'new_subscription', 'retry_payment', 'register_email_confirmation', 'change_subscription', 'wppb_register' ) ) ) && !empty( $subscription_plan->sign_up_fee ) && pms_payment_gateways_support( pms_get_active_payment_gateways(), 'subscription_sign_up_fee' ) )
+        $signup_fee = (float)$subscription_plan->sign_up_fee;
+
+    if( $signup_fee > 0 && apply_filters( 'pms_discount_exclude_signup_fee', false, $discount_code ) )
+        $discounted_amount = pms_in_calculate_discounted_amount( (float)$subscription_plan->price, $discount_code ) + $signup_fee;
+    else
+        $discounted_amount = pms_in_calculate_discounted_amount( (float)$subscription_plan->price + $signup_fee, $discount_code );
 
     $is_full_discount = false;
 

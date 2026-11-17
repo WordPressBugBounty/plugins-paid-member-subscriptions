@@ -287,7 +287,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
                         <div class="pms-dashboard-payments__row">
                             <a href="<?php echo esc_url( add_query_arg( array( 'page' => 'pms-payments-page', 'pms-action' => 'edit_payment', 'payment_id' => $payment->id ), admin_url( 'admin.php' ) ) ); ?>">
-                                <?php printf( esc_html__( '%1s purchased a %2s subscription for %3s', 'paid-member-subscriptions' ), esc_html( $payment_user->user_login ), esc_html( $this->get_plan_name( $payment->subscription_id ) ), esc_html( pms_format_price( $payment->amount, $payment->currency ) ) ); ?>
+                                <?php printf( esc_html__( '%1s purchased a %2s subscription for %3s', 'paid-member-subscriptions' ), esc_html( $payment_user->user_login ), esc_html( $this->get_plan_name( $payment->subscription_id ) ), esc_html( pms_format_price( $payment->amount, pms_get_payment_currency( $payment ) ) ) ); ?>
                             </a>
                             <div class="pms-dashboard-payments__date">
                                 <?php printf( '%1s - %2s', esc_html( $payment->date ), esc_html( $payment->status ) ) ?>

@@ -262,6 +262,502 @@ add_filter( 'woocommerce_get_price_html', 'pms_woo_hide_restricted_product_price
 
 
 /**
+ * Function that hides the description, short description and prices of view-restricted products from Store API product responses
+ *
+ * Block themes load the same responses into the page's interactivity state, so this also covers the product and shop page source
+ *
+ * @param WP_REST_Response|WP_Error|mixed $response The route response
+ * @param array $handler The route handler
+ * @return WP_REST_Response|WP_Error|mixed
+ */
+function pms_woo_hide_restricted_products_from_store_api( $response, $handler ){
+
+    $callback = isset( $handler['callback'] ) ? $handler['callback'] : null;
+    $route    = is_array( $callback ) && isset( $callback[0] ) ? $callback[0] : null;
+
+    $is_product_route = $route instanceof \Automattic\WooCommerce\StoreApi\Routes\V1\Products
+        || $route instanceof \Automattic\WooCommerce\StoreApi\Routes\V1\ProductsById
+        || $route instanceof \Automattic\WooCommerce\StoreApi\Routes\V1\ProductsBySlug;
+
+    if ( ! $is_product_route || ! $response instanceof WP_REST_Response )
+        return $response;
+
+    $data = $response->get_data();
+
+    if ( isset( $data['id'] ) )
+        $data = pms_woo_hide_restricted_store_api_product( $data );
+    elseif ( is_array( $data ) )
+        $data = array_map( 'pms_woo_hide_restricted_store_api_product', $data );
+
+    $response->set_data( $data );
+
+    return $response;
+}
+add_filter( 'rest_request_after_callbacks', 'pms_woo_hide_restricted_products_from_store_api', 10, 2 );
+add_filter( 'woocommerce_hydration_request_after_callbacks', 'pms_woo_hide_restricted_products_from_store_api', 10, 2 );
+
+
+/**
+ * Function that blanks the description, short description and prices of a Store API product if the current user cannot view it
+ *
+ * @param array $product The Store API product data
+ * @return array
+ */
+function pms_woo_hide_restricted_store_api_product( $product ){
+
+    if ( ! is_array( $product ) || empty( $product['id'] ) )
+        return $product;
+
+    $is_restricted = pms_is_post_restricted( $product['id'] );
+
+    // variations carry no restriction rules of their own, they follow the parent product
+    if ( ! $is_restricted && isset( $product['type'] ) && $product['type'] === 'variation' && ! empty( $product['parent'] ) )
+        $is_restricted = pms_is_post_restricted( $product['parent'] );
+
+    if ( ! $is_restricted )
+        return $product;
+
+    $product['description']       = '';
+    $product['short_description'] = '';
+    $product['price_html']        = '';
+
+    $prices                  = (array) $product['prices'];
+    $prices['price']         = '';
+    $prices['regular_price'] = '';
+    $prices['sale_price']    = '';
+    $prices['price_range']   = null;
+    $product['prices']       = (object) $prices;
+
+    return $product;
+}
+
+
+/**
+ * Function that tags the product queries of a Store API products or collection data request with the current viewer's product visibility
+ *
+ * Collection data always applies it, because the price range of a single product is its hidden price.
+ *
+ * The tag travels in the request's own exclude param, so ProductQuery copies it into every product query the route runs
+ * and the filter data WooCommerce caches by query vars is cached per visibility.
+ *
+ * @param WP_REST_Response|WP_Error|mixed $response The route response, a WP_Error when the request already failed
+ * @param array $handler The route handler
+ * @param WP_REST_Request $request The request the route callback receives
+ * @return WP_REST_Response|WP_Error|mixed
+ */
+function pms_woo_tag_store_api_product_queries( $response, $handler, $request ){
+
+    $callback = isset( $handler['callback'] ) ? $handler['callback'] : null;
+    $route    = is_array( $callback ) && isset( $callback[0] ) ? $callback[0] : null;
+
+    if ( $route instanceof \Automattic\WooCommerce\StoreApi\Routes\V1\ProductCollectionData ) {
+        $applies = true;
+    } elseif ( $route instanceof \Automattic\WooCommerce\StoreApi\Routes\V1\Products ) {
+        $content_settings = get_option( 'pms_content_restriction_settings' );
+        $woo_settings     = get_option( 'pms_woocommerce_settings' );
+
+        $applies = ( ! isset( $content_settings['pms_includeRestrictedPosts'] ) || $content_settings['pms_includeRestrictedPosts'] != 'yes' )
+            && isset( $woo_settings['exclude_products_from_queries'] ) && $woo_settings['exclude_products_from_queries'] == 1;
+    } else {
+        $applies = false;
+    }
+
+    if ( ! $applies || is_wp_error( $response ) )
+        return $response;
+
+    $visibility = pms_woo_get_store_api_product_visibility();
+
+    if ( $visibility === null )
+        return $response;
+
+    // hydration passes the raw query params
+    $excluded = empty( $request['exclude'] ) ? array() : wp_parse_id_list( $request['exclude'] );
+
+    $excluded['pms_restricted_products'] = $visibility['key'];
+
+    $request->set_param( 'exclude', $excluded );
+
+    return $response;
+}
+add_filter( 'rest_request_before_callbacks', 'pms_woo_tag_store_api_product_queries', 10, 3 );
+
+
+/**
+ * Function that tags the product queries of a hydrated Store API request, since hydration does not fire the REST callback hooks
+ *
+ * @param mixed $result The hydration result, null unless another callback already answered the request
+ * @param WP_REST_Request $request The request the route callback receives
+ * @param string $path The request path
+ * @param array $handler The route handler
+ * @return mixed
+ */
+function pms_woo_tag_hydrated_store_api_product_queries( $result, $request, $path, $handler ){
+
+    pms_woo_tag_store_api_product_queries( null, $handler, $request );
+
+    return $result;
+}
+add_filter( 'woocommerce_hydration_dispatch_request', 'pms_woo_tag_hydrated_store_api_product_queries', 10, 4 );
+
+
+/**
+ * Function that applies the current viewer's product visibility to a product query tagged by pms_woo_tag_store_api_product_queries()
+ *
+ * @param WP_Query $query The query
+ */
+function pms_woo_apply_store_api_product_visibility( $query ){
+
+    $excluded = $query->get( 'post__not_in' );
+
+    if ( ! is_array( $excluded ) || ! array_key_exists( 'pms_restricted_products', $excluded ) )
+        return;
+
+    $visibility = pms_woo_get_store_api_product_visibility();
+
+    if ( $visibility === null )
+        return;
+
+    unset( $excluded['pms_restricted_products'] );
+
+    $included = wp_parse_id_list( $query->get( 'post__in' ) );
+
+    if ( empty( $included ) && $visibility['mode'] === 'hide' ) {
+        $query->set( 'post__not_in', array_merge( $excluded, $visibility['ids'] ) );
+        return;
+    }
+
+    // WP_Query ignores post__not_in whenever post__in is set
+    if ( empty( $included ) )
+        $kept = array_diff( $visibility['ids'], $excluded );
+    elseif ( $visibility['mode'] === 'only' )
+        $kept = array_intersect( $included, $visibility['ids'] );
+    else
+        $kept = array_diff( $included, $visibility['ids'] );
+
+    $query->set( 'post__in', empty( $kept ) ? array( 0 ) : array_values( $kept ) );
+    $query->set( 'post__not_in', $excluded );
+}
+add_action( 'pre_get_posts', 'pms_woo_apply_store_api_product_visibility' );
+
+
+/**
+ * Function that returns the current viewer's product visibility for Store API product queries
+ *
+ * @return array|null Null when the viewer may see every product, otherwise array( 'mode' => 'hide'|'only', 'ids' => int[], 'key' => string )
+ */
+function pms_woo_get_store_api_product_visibility(){
+
+    global $wpdb;
+
+    static $visibility_by_user = array();
+
+    $user_id = get_current_user_id();
+
+    if ( array_key_exists( $user_id, $visibility_by_user ) )
+        return $visibility_by_user[ $user_id ];
+
+    if ( current_user_can( 'manage_options' ) )
+        return null;
+
+    $inputs     = pms_woo_get_product_restriction_inputs();
+    $groups     = pms_woo_group_products_by_restriction_signature( $inputs );
+    $outside_id = pms_woo_get_product_outside_restriction_rules( $inputs );
+
+    $representatives = array();
+
+    foreach ( $groups as $product_ids )
+        $representatives[] = $product_ids[0];
+
+    if ( $outside_id )
+        $representatives[] = $outside_id;
+
+    _prime_post_caches( $representatives, true, true );
+
+    $hidden  = array();
+    $visible = array();
+
+    foreach ( $groups as $product_ids ) {
+        if ( pms_is_post_restricted( $product_ids[0] ) )
+            $hidden[] = $product_ids;
+        else
+            $visible[] = $product_ids;
+    }
+
+    $hidden  = array_merge( array(), ...$hidden );
+    $visible = array_merge( array(), ...$visible );
+
+    if ( $outside_id )
+        $list_visible = pms_is_post_restricted( $outside_id );
+    else
+        $list_visible = count( $visible ) < count( $hidden );
+
+    $ids = $list_visible ? $visible : $hidden;
+
+    if ( ! $list_visible && empty( $ids ) ) {
+        $visibility_by_user[ $user_id ] = null;
+        return null;
+    }
+
+    if ( ! empty( $ids ) ) {
+        $variation_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_parent IN ( " . implode( ',', array_fill( 0, count( $ids ), '%d' ) ) . ' )',
+            array_merge( array( 'product_variation' ), $ids )
+        ) );
+
+        $ids = array_merge( $ids, array_map( 'intval', $variation_ids ) );
+    }
+
+    sort( $ids );
+
+    $mode = $list_visible ? 'only' : 'hide';
+
+    $visibility_by_user[ $user_id ] = array(
+        'mode' => $mode,
+        'ids'  => $ids,
+        // keyed with a secret, because the tag shows up in the pagination links of the product collection
+        'key'  => 'pms-' . wp_hash( $mode . ':' . implode( ',', $ids ) ),
+    );
+
+    return $visibility_by_user[ $user_id ];
+}
+
+
+/**
+ * Function that reads which terms and listed products the restriction rules of the core plugin, Global Content Restriction and Content Dripping reach
+ *
+ * @return array array( 'term_facts' => array( term_taxonomy_id => string[] ), 'post_facts' => array( product_id => string[] ) )
+ */
+function pms_woo_get_product_restriction_inputs(){
+
+    global $wpdb;
+
+    $term_facts         = array();
+    $post_facts         = array();
+    $product_taxonomies = get_object_taxonomies( 'product' );
+
+    $restricted_term_ids = $wpdb->get_col( $wpdb->prepare(
+        "SELECT DISTINCT tt.term_taxonomy_id FROM {$wpdb->termmeta} tm INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = tm.term_id
+        WHERE tm.meta_key IN ( %s, %s, %s ) AND tt.taxonomy IN ( " . implode( ',', array_fill( 0, count( $product_taxonomies ), '%s' ) ) . ' )',
+        array_merge( array( 'pms-content-restrict-user-status', 'pms-content-restrict-subscription-plan', 'pms-content-restrict-all-subscription-plans' ), $product_taxonomies )
+    ) );
+
+    foreach ( $restricted_term_ids as $term_taxonomy_id )
+        $term_facts[ $term_taxonomy_id ][] = 't:' . $term_taxonomy_id;
+
+    if ( class_exists( 'PMS_IN_Meta_Box_Subscription_Content_Restriction' ) ) {
+
+        foreach ( pms_get_subscription_plans() as $plan ) {
+
+            $nr_of_rules           = (int) get_post_meta( $plan->id, 'pms_nr_of_rules', true );
+            $rule_taxonomies       = array();
+            $reaches_every_product = false;
+
+            for ( $k = 1; $k <= $nr_of_rules; $k++ ) {
+
+                if ( get_post_meta( $plan->id, 'pms_content_rule_post_type_' . $k, true ) != 'product' )
+                    continue;
+
+                $taxonomies = get_post_meta( $plan->id, 'pms_content_rule_taxonomies_' . $k, true );
+
+                if ( empty( $taxonomies ) ) {
+                    $reaches_every_product = true;
+                    break;
+                }
+
+                $rule_taxonomies = array_merge( $rule_taxonomies, explode( ',', $taxonomies ) );
+            }
+
+            if ( $reaches_every_product )
+                continue;
+
+            foreach ( array_intersect( $product_taxonomies, $rule_taxonomies ) as $taxonomy ) {
+
+                $terms = get_post_meta( $plan->id, 'pms_content_rule_tax_terms_product_' . $taxonomy, true );
+                $terms = empty( $terms ) ? array( '' ) : explode( ',', $terms );
+
+                // has_term() reads an empty term as any term of the taxonomy
+                if ( count( array_filter( $terms ) ) < count( $terms ) )
+                    $term_taxonomy_ids = $wpdb->get_col( $wpdb->prepare( "SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = %s", $taxonomy ) );
+                else
+                    $term_taxonomy_ids = pms_woo_get_term_taxonomy_ids_by_terms( $taxonomy, $terms );
+
+                foreach ( $term_taxonomy_ids as $term_taxonomy_id )
+                    $term_facts[ $term_taxonomy_id ][] = 'g:' . $plan->id;
+            }
+        }
+    }
+
+    if ( function_exists( 'pms_in_cd_filter_content' ) ) {
+
+        foreach ( get_posts( array( 'post_type' => 'pms-content-dripping', 'numberposts' => -1, 'post_status' => 'active' ) ) as $set ) {
+
+            foreach ( (array) get_post_meta( $set->ID, 'pms-content-dripping-rules', true ) as $index => $rule ) {
+
+                if ( empty( $rule['content'] ) || ! isset( $rule['post_type'] ) || $rule['post_type'] !== 'product' )
+                    continue;
+
+                $fact = 'd:' . $set->ID . ':' . $index;
+
+                if ( $rule['type'] == 'pms_list_of_posts' ) {
+                    foreach ( wp_parse_id_list( $rule['content'] ) as $product_id )
+                        $post_facts[ $product_id ][] = $fact;
+
+                    continue;
+                }
+
+                $term_ids = wp_parse_id_list( $rule['content'] );
+
+                $term_taxonomy_ids = $wpdb->get_col( $wpdb->prepare(
+                    "SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = %s AND term_id IN ( " . implode( ',', array_fill( 0, count( $term_ids ), '%d' ) ) . ' )',
+                    array_merge( array( $rule['type'] ), $term_ids )
+                ) );
+
+                foreach ( $term_taxonomy_ids as $term_taxonomy_id )
+                    $term_facts[ $term_taxonomy_id ][] = $fact;
+            }
+        }
+    }
+
+    return array(
+        'term_facts' => $term_facts,
+        'post_facts' => $post_facts,
+    );
+}
+
+
+/**
+ * Function that returns the term taxonomy IDs of the terms of a taxonomy that has_term() matches with the given term IDs, names or slugs
+ *
+ * @param string $taxonomy The taxonomy
+ * @param string[] $terms Term IDs, names or slugs
+ * @return int[]
+ */
+function pms_woo_get_term_taxonomy_ids_by_terms( $taxonomy, $terms ){
+
+    global $wpdb;
+
+    $term_ids = wp_parse_id_list( $terms );
+
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT tt.term_taxonomy_id, t.term_id, t.name, t.slug FROM {$wpdb->term_taxonomy} tt INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+        WHERE tt.taxonomy = %s AND ( t.term_id IN ( " . implode( ',', array_fill( 0, count( $term_ids ), '%d' ) ) . ' )
+        OR t.name IN ( ' . implode( ',', array_fill( 0, count( $terms ), '%s' ) ) . ' )
+        OR t.slug IN ( ' . implode( ',', array_fill( 0, count( $terms ), '%s' ) ) . ' ) )',
+        array_merge( array( $taxonomy ), $term_ids, $terms, $terms )
+    ) );
+
+    // the query also matches other letter cases and accents, is_object_in_term() compares exactly
+    $numbers           = array_map( 'intval', array_filter( $terms, 'is_numeric' ) );
+    $term_taxonomy_ids = array();
+
+    foreach ( $rows as $row ) {
+        if ( in_array( (int) $row->term_id, $numbers, true ) || in_array( $row->name, $terms, true ) || in_array( $row->slug, $terms, true ) )
+            $term_taxonomy_ids[] = (int) $row->term_taxonomy_id;
+    }
+
+    return $term_taxonomy_ids;
+}
+
+
+/**
+ * Function that groups the published products that have restriction facts by the facts they share
+ *
+ * @param array $inputs The rule inputs from pms_woo_get_product_restriction_inputs()
+ * @return array Sorted facts, JSON encoded => int[] product IDs; products without facts are not listed
+ */
+function pms_woo_group_products_by_restriction_signature( $inputs ){
+
+    global $wpdb;
+
+    $facts = array();
+
+    $meta_rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT pm.post_id, pm.meta_key, pm.meta_value FROM {$wpdb->postmeta} pm INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+        WHERE pm.meta_key IN ( %s, %s, %s ) AND p.post_type = %s AND p.post_status = %s",
+        'pms-content-restrict-user-status',
+        'pms-content-restrict-subscription-plan',
+        'pms-content-restrict-all-subscription-plans',
+        'product',
+        'publish'
+    ) );
+
+    foreach ( $meta_rows as $row )
+        $facts[ $row->post_id ][] = 'm:' . $row->meta_key . '=' . $row->meta_value;
+
+    if ( ! empty( $inputs['term_facts'] ) ) {
+
+        $term_taxonomy_ids = array_keys( $inputs['term_facts'] );
+
+        $term_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT tr.object_id, tr.term_taxonomy_id FROM {$wpdb->term_relationships} tr INNER JOIN {$wpdb->posts} p ON p.ID = tr.object_id
+            WHERE tr.term_taxonomy_id IN ( " . implode( ',', array_fill( 0, count( $term_taxonomy_ids ), '%d' ) ) . ' ) AND p.post_type = %s AND p.post_status = %s',
+            array_merge( $term_taxonomy_ids, array( 'product', 'publish' ) )
+        ) );
+
+        foreach ( $term_rows as $row ) {
+            foreach ( $inputs['term_facts'][ $row->term_taxonomy_id ] as $fact )
+                $facts[ $row->object_id ][] = $fact;
+        }
+    }
+
+    if ( ! empty( $inputs['post_facts'] ) ) {
+
+        $listed_ids = array_keys( $inputs['post_facts'] );
+
+        $published_ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE ID IN ( " . implode( ',', array_fill( 0, count( $listed_ids ), '%d' ) ) . ' ) AND post_type = %s AND post_status = %s',
+            array_merge( $listed_ids, array( 'product', 'publish' ) )
+        ) );
+
+        foreach ( $published_ids as $product_id ) {
+            foreach ( $inputs['post_facts'][ $product_id ] as $fact )
+                $facts[ $product_id ][] = $fact;
+        }
+    }
+
+    $groups = array();
+
+    foreach ( $facts as $product_id => $product_facts ) {
+        $product_facts = array_unique( $product_facts );
+        sort( $product_facts );
+
+        $groups[ wp_json_encode( $product_facts ) ][] = $product_id;
+    }
+
+    return $groups;
+}
+
+
+/**
+ * Function that returns one published product without restriction facts
+ *
+ * @param array $inputs The rule inputs from pms_woo_get_product_restriction_inputs()
+ * @return int The product ID, 0 when every published product has restriction facts
+ */
+function pms_woo_get_product_outside_restriction_rules( $inputs ){
+
+    global $wpdb;
+
+    $sql  = "SELECT p.ID FROM {$wpdb->posts} p
+        WHERE p.post_type = %s AND p.post_status = %s
+        AND NOT EXISTS ( SELECT 1 FROM {$wpdb->postmeta} pm WHERE pm.post_id = p.ID AND pm.meta_key IN ( %s, %s, %s ) )";
+    $args = array( 'product', 'publish', 'pms-content-restrict-user-status', 'pms-content-restrict-subscription-plan', 'pms-content-restrict-all-subscription-plans' );
+
+    if ( ! empty( $inputs['term_facts'] ) ) {
+        $sql .= " AND NOT EXISTS ( SELECT 1 FROM {$wpdb->term_relationships} tr WHERE tr.object_id = p.ID AND tr.term_taxonomy_id IN ( " . implode( ',', array_fill( 0, count( $inputs['term_facts'] ), '%d' ) ) . ' ) )';
+        $args = array_merge( $args, array_keys( $inputs['term_facts'] ) );
+    }
+
+    if ( ! empty( $inputs['post_facts'] ) ) {
+        $sql .= ' AND p.ID NOT IN ( ' . implode( ',', array_fill( 0, count( $inputs['post_facts'] ), '%d' ) ) . ' )';
+        $args = array_merge( $args, array_keys( $inputs['post_facts'] ) );
+    }
+
+    return (int) $wpdb->get_var( $wpdb->prepare( $sql . ' LIMIT 1', $args ) );
+}
+
+
+/**
  * Function that hides the product image thumbnail for view-restricted products
  *
  */

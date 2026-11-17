@@ -54,7 +54,7 @@ function pms_get_member_subscriptions( $args = array() ) {
     $query_where  = "WHERE 1=%d ";
 
     // Collect $wpdb->prepare() arguments in the same order their placeholders appear in $query_where,
-    // so the status filter can be bound as a placeholder instead of interpolated into the query string.
+    // so filter values are bound as placeholders instead of interpolated into the query string.
     $query_where_args = array( 1 );
 
 
@@ -91,63 +91,72 @@ function pms_get_member_subscriptions( $args = array() ) {
     // Filter by start date
     if( ! empty( $args['start_date'] ) ) {
 
-        $query_where .= " AND start_date LIKE '%%{$args['start_date']}%%'";
+        $query_where .= " AND start_date LIKE %s";
+        $query_where_args[] = '%' . $wpdb->esc_like( $args['start_date'] ) . '%';
 
     }
 
     // Filter by start date after
     if( ! empty( $args['start_date_after'] ) ) {
 
-        $query_where .= " AND start_date > '{$args['start_date_after']}'";
+        $query_where .= " AND start_date > %s";
+        $query_where_args[] = $args['start_date_after'];
 
     }
 
     // Filter by start date before
     if( ! empty( $args['start_date_before'] ) ) {
 
-        $query_where .= " AND start_date < '{$args['start_date_before']}'";
+        $query_where .= " AND start_date < %s";
+        $query_where_args[] = $args['start_date_before'];
 
     }
 
     // Filter by expiration date
     if( ! empty( $args['expiration_date'] ) ) {
 
-        $query_where .= " AND expiration_date LIKE '%%{$args['expiration_date']}%%'";
+        $query_where .= " AND expiration_date LIKE %s";
+        $query_where_args[] = '%' . $wpdb->esc_like( $args['expiration_date'] ) . '%';
 
     }
 
     // Filter by expiration date after
     if( ! empty( $args['expiration_date_after'] ) ) {
 
-        $query_where .= " AND expiration_date > '{$args['expiration_date_after']}'";
+        $query_where .= " AND expiration_date > %s";
+        $query_where_args[] = $args['expiration_date_after'];
 
     }
 
     // Filter by expiration date before
     if( ! empty( $args['expiration_date_before'] ) ) {
 
-        $query_where .= " AND expiration_date < '{$args['expiration_date_before']}'";
+        $query_where .= " AND expiration_date < %s";
+        $query_where_args[] = $args['expiration_date_before'];
 
     }
 
     // Filter by billing next payment date
     if( ! empty( $args['billing_next_payment'] ) ) {
 
-        $query_where .= " AND billing_next_payment LIKE '%%{$args['billing_next_payment']}%%'";
+        $query_where .= " AND billing_next_payment LIKE %s";
+        $query_where_args[] = '%' . $wpdb->esc_like( $args['billing_next_payment'] ) . '%';
 
     }
 
     // Filter by billing next date payment after
     if( ! empty( $args['billing_next_payment_after'] ) ) {
 
-        $query_where .= " AND billing_next_payment > '{$args['billing_next_payment_after']}'";
+        $query_where .= " AND billing_next_payment > %s";
+        $query_where_args[] = $args['billing_next_payment_after'];
 
     }
 
     // Filter by billing next payment date before
     if( ! empty( $args['billing_next_payment_before'] ) ) {
 
-        $query_where .= " AND billing_next_payment < '{$args['billing_next_payment_before']}'";
+        $query_where .= " AND billing_next_payment < %s";
+        $query_where_args[] = $args['billing_next_payment_before'];
 
     }
 
@@ -175,11 +184,14 @@ function pms_get_member_subscriptions( $args = array() ) {
     if( ! empty( $args['payment_gateway'] ) ) {
 
         if( is_array( $args['payment_gateway'] ) ){
-            $gateways = implode(',', array_map( fn($g) => "'" . sanitize_text_field($g) . "'", $args['payment_gateway'] ) );
-            $query_where .= " AND payment_gateway IN ($gateways)";
+            $gateways     = array_map( 'sanitize_text_field', $args['payment_gateway'] );
+            $placeholders = implode( ',', array_fill( 0, count( $gateways ), '%s' ) );
+            $query_where .= " AND payment_gateway IN ($placeholders)";
+            $query_where_args = array_merge( $query_where_args, array_values( $gateways ) );
         }
         else{
-            $query_where .= " AND payment_gateway LIKE '{$args['payment_gateway']}'";
+            $query_where .= " AND payment_gateway LIKE %s";
+            $query_where_args[] = $args['payment_gateway'];
         }
 
     }

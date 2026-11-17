@@ -152,7 +152,7 @@ class PMS_Setup_Wizard {
             if( isset( $_POST['pms_general_settings'] ) && !empty( $_POST['pms_general_settings']['forms_design'] ) )
                 $settings['forms_design'] = sanitize_text_field( $_POST['pms_general_settings']['forms_design'] );
             else
-                $settings['forms_design'] = 'default';
+                $settings['forms_design'] = 'form-style-default';
 
             if( !empty( $settings ) )
                 update_option( 'pms_general_settings', $settings );

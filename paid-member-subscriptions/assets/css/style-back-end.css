@@ -1597,6 +1597,17 @@ body[class*="_page_pms-"] .mce-inline-toolbar-grp .mce-btn.mce-primary:focus {
     font-weight: bold;
 }
 
+.cozmoslabs-paypal-connect__coop-warning {
+    max-width: 600px;
+    margin: 12px 0 0;
+    border-left: 4px solid #dba617;
+    background: #fcf9e8;
+    padding: 8px 12px;
+    color: #1d2327;
+    font-size: 13px;
+    line-height: 18px;
+}
+
 .cozmoslabs-stripe-connect__notice {
     width: fit-content;
     border:1px solid #ffb900;
@@ -6514,8 +6525,6 @@ body.admin-color-fresh ul#adminmenu .toplevel_page_paid-member-subscriptions.wp-
 .pms-bf-notice-container {
     display: flex;
     align-items: center;
-    padding: 10px;
-    padding-left: 0px;
     gap: 8px;
 }
 
@@ -6524,16 +6533,6 @@ body.admin-color-fresh ul#adminmenu .toplevel_page_paid-member-subscriptions.wp-
     font-size: 14px;
     padding-left: 20px;
     padding-right: 20px;
-}
-
-#pms_bf_2024 p:first-child {
-    padding: 0px;
-    margin: 0px;
-}
-
-#pms_bf_2024 p:last-child {
-    padding: 0px;
-    margin: 0px;
 }
 
 div.wppb-notice,

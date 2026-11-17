@@ -419,7 +419,7 @@ function pms_in_ppsrp_ipn_listener( $payment_data, $post_data ) {
                 if ( method_exists( $payment, 'log_data') )
                     $payment->log_data( 'paypal_ipn_received', array( 'data' => $post_data, 'desc' => 'paypal IPN' ) );
 
-                if ( ! pms_paypal_ipn_can_complete_pending_payment( $payment, $payment_data ) )
+                if ( ! pms_paypal_ipn_can_complete_pending_payment( $payment, $payment_data, $post_data ) )
                     return;
 
                 $payment->update(
@@ -456,15 +456,12 @@ function pms_in_ppsrp_ipn_listener( $payment_data, $post_data ) {
                 $payment_profile_id = isset( $post_data['subscr_id'] ) ? sanitize_text_field( $post_data['subscr_id'] ) : '';
                 $old_profile        = !empty( $current_subscription ) && ( $current_subscription->payment_gateway != 'paypal_standard' || ( !empty( $current_subscription->payment_profile_id ) && $current_subscription->payment_profile_id != $payment_profile_id ) );
 
-                $plan            = pms_get_subscription_plan( $payment->subscription_id );
-                $expected_amount = pms_paypal_expected_recurring_amount( $payment, $plan, $old_profile ? null : $current_subscription );
-                $expected        = array(
-                    'amount'   => $expected_amount,
-                    'currency' => ! empty( $payment->currency ) ? $payment->currency : pms_get_active_currency(),
-                    'plan_id'  => $payment->subscription_id,
-                );
+                $payment_data['profile_id'] = $payment_profile_id;
 
-                if ( ! pms_paypal_ipn_matches_expected( $payment, $payment_data, $expected ) )
+                $plan     = pms_get_subscription_plan( $payment->subscription_id );
+                $expected = pms_paypal_resolve_expected_recurring( $payment, $plan, $old_profile ? null : $current_subscription, $payment_data );
+
+                if ( ! pms_paypal_ipn_matches_expected( $payment, $payment_data, $expected, $post_data ) )
                     return;
 
                 $new_payment = new PMS_Payment();
@@ -485,7 +482,9 @@ function pms_in_ppsrp_ipn_listener( $payment_data, $post_data ) {
 
                 pms_add_payment_meta( $new_payment->id, 'subscription_id', $payment->member_subscription_id, true );
 
-                $new_payment->update( array( 'type' => $payment_data['type'], 'transaction_id' => $payment_data['transaction_id'] ) );
+                $new_payment->update( array( 'type' => $payment_data['type'], 'transaction_id' => $payment_data['transaction_id'], 'profile_id' => $payment_profile_id ) );
+
+                pms_paypal_log_expected_override( $payment, $new_payment, $payment_data, $expected );
 
                 if( $old_profile ) {
 
@@ -507,7 +506,13 @@ function pms_in_ppsrp_ipn_listener( $payment_data, $post_data ) {
 
                 }
 
+                do_action( 'pms_paypal_subscr_new_payment_added', $new_payment, $payment_data, $post_data );
+
             }
+
+        } elseif ( $payment_data['status'] == 'pending' ) {
+
+            pms_paypal_ipn_record_pending_payment( $payment, $payment_data, $post_data );
 
         }
 

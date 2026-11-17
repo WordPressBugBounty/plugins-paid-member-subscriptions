@@ -32,6 +32,22 @@ function pms_ppcp_connect_callback(authCode, sharedId) {
 
 jQuery(document).ready(function() {
 
+    // With this header the PayPal onboarding popup loses window.opener and can never call pms_ppcp_connect_callback
+    let coopWarning = jQuery('#pms-paypal-connect-coop-warning');
+
+    if ( coopWarning.length && window.fetch ) {
+        let checkUrl = new URL( ajaxurl, window.location.href );
+        checkUrl.searchParams.set( 'action', 'pms_ppcp_check_headers' );
+
+        fetch( checkUrl, { credentials: 'same-origin', cache: 'no-store' } )
+            .then(function (response) {
+                // Browsers read the value as a case-sensitive token, so only this exact form severs the opener
+                if ( /^same-origin(;|$)/.test( response.headers.get('Cross-Origin-Opener-Policy') || '' ) )
+                    coopWarning.prop('hidden', false);
+            })
+            .catch(function () {});
+    }
+
     jQuery('.pms-paypal-connect__disconnect-handler').click(function (e) {
         e.preventDefault()
 

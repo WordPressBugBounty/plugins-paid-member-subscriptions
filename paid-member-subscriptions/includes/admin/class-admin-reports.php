@@ -830,7 +830,7 @@ Class PMS_Submenu_Page_Reports extends PMS_Submenu_Page {
             $queried_payments = pms_reports_prefetch_base_currency_amounts_for_payments( $queried_payments );
 
             foreach( $queried_payments as $payment ) {
-                $currency             = !empty( $payment['currency'] ) ? $payment['currency'] : $default_currency;
+                $currency             = pms_reports_get_payment_currency( $payment );
                 $currency             = apply_filters( 'pms_reports_payment_currency', $currency, $payment );
 
                 // Total Payment Amounts in Default Currency

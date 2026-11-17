@@ -249,6 +249,9 @@ Class PMS_Payments_Log_List_Table extends WP_List_Table {
             case 'payment_method_registration_failed':
                 $message = __( 'Payment was reverted to failed because the payment method registration is required but it failed.', 'paid-member-subscriptions' );
                 break;
+            case 'payment_currency_corrected':
+                $message = sprintf( __( 'Payment currency corrected from <strong>%1$s</strong> to <strong>%2$s</strong>, the currency saved in the payment details.', 'paid-member-subscriptions' ), esc_html( $log['data']['from'] ), esc_html( $log['data']['to'] ) );
+                break;
             default:
                 $message = __( 'Something went wrong.', 'paid-member-subscriptions' );
                 break;

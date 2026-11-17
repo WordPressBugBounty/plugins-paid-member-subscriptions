@@ -5,7 +5,7 @@ Tags: membership, paid membership, subscription, content restriction, membership
 Requires at least: 3.1
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.1.4
+Stable tag: 3.1.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -282,17 +282,22 @@ Please report security bugs found in the source code of the Paid Member Subscrip
 15. Available Add-ons for extending your membership site
 
 == Changelog ==
-= 3.1.4 =
-* Fix: Security issue regarding unauthenticated cross-site scripting on the Profile Builder PayPal redirect. Thanks to dzaku and the Patchstack team for the report
-* Fix: Security issue regarding PayPal Connect order substitution. Thanks to Sangho Lee and the Patchstack team
-* Fix: Stripe Connect webhooks match the site when the home URL contains a subdirectory or a port
-* Fix: Process Stripe Connect dispute lost events and mark the payment as refunded
-* Fix: Harden subscription renewal process and add Stripe idempotency keys for renewal requests
-* Fix: Reject a Stripe Webhook when secret is saved and signature check fails
-* Fix: Send Billing Details to Stripe when they are preset in the form
-* Fix: Apply Stripe Connect 3D Secure plan changes and renewals when the webhook completes the payment first
-* Fix: Update the currency symbols for the Rwandan franc, Kazakhstani tenge, Kyrgyzstani som and Uzbekistani som
-* Fix: A charge on an old PayPal Standard profile no longer changes the subscription
-* Fix: Some back-end pages were not showing validation errors correctly
+= 3.1.5 =
+* Security: Comment feeds no longer list comments of restricted posts, and visitors without access see the restriction message instead of a restricted post's manual excerpt, in archives, feeds, REST and search. Thanks to Malvin Valerian Gultom and the Patchstack team for the report
+* Security: Restricted blocks and Elementor elements no longer appear in auto-generated excerpts in REST, feeds, search and embeds. Thanks to Malvin Valerian Gultom and the Patchstack team for the report
+* Security: The restricted post preview before the more tag applies block content restriction. Thanks to Malvin Valerian Gultom and the Patchstack team for the report
+* Security: WooCommerce - Restricted products show no description, short description or price in the Store API. Thanks to Malvin Valerian Gultom and the Patchstack team for the report
+* Security: Merge tag values no longer run as shortcodes in emails and restriction messages. Thanks to Ravi Dharmawan and the Patchstack team for the report
+* Security: Stripe Connect - The 3D Secure resume only completes the payment of its own subscription and member. Thanks to Shravan Ankush Kumbhar and the Patchstack team for the report
+* Security: Stripe Connect - A checkout completes only with a payment intent it created that matches the payment. Thanks to Anurag Dharmendra Kumar Maurya and the Patchstack team for the report
+* Security: Correctly charge a sign-up fee in a full discount scenario. Thanks to HoneyPunch and the Patchstack team for the report
+* Security: WooCommerce - Store API product listings, price ranges, search and price filters no longer include restricted products
+* Fix: PayPal Standard - Fix immediate failure with eCheck or payment review PayPal payments
+* Fix: PayPal Standard - Renewals are accepted when the first payment differed from the recurring charge, such as with a first-payment-only discount, or when the charged currency differs from the site currency
+* Fix: Stripe Connect - Renewals no longer fail with "unexpected keys in options array" when another plugin loads an older Stripe library
+* Fix: Stripe Connect - The checkout keeps working when Jetpack Boost or another optimizer concatenates JavaScript
+* Fix: Gift buyers see the success message when the webhook gives the gift before the 3D Secure check returns
+* Fix: Issue with TutorLMS Content Restriction not working correctly
+* Enhancement: PayPal Connect - The settings warn when a Cross-Origin-Opener-Policy header blocks onboarding
 
 [Click Here](https://www.cozmoslabs.com/docs/paid-member-subscriptions/free-changelog/?utm_source=wp.org&utm_medium=pms-description-page&utm_campaign=PMSFree) to view the full changelog.

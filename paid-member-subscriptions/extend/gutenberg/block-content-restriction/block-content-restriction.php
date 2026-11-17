@@ -45,6 +45,50 @@ function pms_render_blocks( $block_content, $block ) {
 }
 add_filter( 'render_block', 'pms_render_blocks', 10, 2 );
 
+// excerpt_remove_blocks() renders only the leaves of wrapper blocks, so render_block never runs for a restricted wrapper
+add_filter( 'content_pagination', 'pms_hide_restricted_blocks_from_excerpt', 999, 2 );
+function pms_hide_restricted_blocks_from_excerpt( $pages, $post ) {
+    if ( !doing_filter( 'get_the_excerpt' ) ) {
+        return $pages;
+    }
+
+    foreach ( $pages as $index => $page ) {
+        if ( strpos( $page, 'pmsContentRestriction' ) === false ) {
+            continue;
+        }
+
+        $stripped = false;
+        $blocks   = pms_strip_hidden_blocks_content( parse_blocks( $page ), $stripped );
+
+        if ( $stripped ) {
+            $pages[ $index ] = serialize_blocks( $blocks );
+        }
+    }
+
+    return $pages;
+}
+
+function pms_strip_hidden_blocks_content( $blocks, &$stripped ) {
+    foreach ( $blocks as $index => $block ) {
+        if ( pms_is_block_hidden( $block ) ) {
+            $blocks[ $index ]['innerBlocks']  = array();
+            $blocks[ $index ]['innerHTML']    = '';
+            $blocks[ $index ]['innerContent'] = array();
+            $stripped = true;
+        } elseif ( !empty( $block['innerBlocks'] ) ) {
+            $blocks[ $index ]['innerBlocks'] = pms_strip_hidden_blocks_content( $block['innerBlocks'], $stripped );
+        }
+    }
+
+    return $blocks;
+}
+
+function pms_is_block_hidden( $block ) {
+    $visibility_probe = 'pms-block-visibility-probe';
+
+    return strpos( pms_render_blocks( $visibility_probe, $block ), $visibility_probe ) === false;
+}
+
 /**
  * Adds the `pmsContentRestriction` attribute to all blocks
  */

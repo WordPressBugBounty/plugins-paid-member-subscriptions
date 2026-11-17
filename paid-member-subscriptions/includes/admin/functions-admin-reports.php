@@ -13,6 +13,19 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 function pms_reports_fetch_base_currency_amount_meta_map( $payment_ids ) {
 
+    return pms_reports_fetch_payment_meta_map( $payment_ids, 'base_currency_amount' );
+
+}
+
+/**
+ * Bulk-load one payment meta key for a set of payment IDs.
+ *
+ * @param int[]  $payment_ids
+ * @param string $meta_key
+ * @return array Meta values keyed by payment ID.
+ */
+function pms_reports_fetch_payment_meta_map( $payment_ids, $meta_key ) {
+
     global $wpdb;
 
     $payment_ids = array_filter( array_map( 'absint', $payment_ids ) );
@@ -27,8 +40,11 @@ function pms_reports_fetch_base_currency_amount_meta_map( $payment_ids ) {
         $ids_in = implode( ',', $chunk );
 
         $rows = $wpdb->get_results(
-            "SELECT payment_id, meta_value FROM {$wpdb->prefix}pms_paymentmeta
-            WHERE meta_key = 'base_currency_amount' AND payment_id IN ({$ids_in})",
+            $wpdb->prepare(
+                "SELECT payment_id, meta_value FROM {$wpdb->prefix}pms_paymentmeta
+                WHERE meta_key = %s AND payment_id IN ({$ids_in})",
+                $meta_key
+            ),
             ARRAY_A
         );
 
@@ -45,7 +61,7 @@ function pms_reports_fetch_base_currency_amount_meta_map( $payment_ids ) {
 }
 
 /**
- * Attach prefetched base_currency_amount meta to payment rows used in reports.
+ * Attach prefetched base_currency_amount and currency meta to payment rows used in reports.
  *
  * @param array $payments
  * @return array
@@ -62,9 +78,10 @@ function pms_reports_prefetch_base_currency_amounts_for_payments( $payments ) {
             $payment_ids[] = (int) $payment['id'];
     }
 
-    $meta_map = pms_reports_fetch_base_currency_amount_meta_map( $payment_ids );
+    $meta_map     = pms_reports_fetch_base_currency_amount_meta_map( $payment_ids );
+    $currency_map = pms_reports_fetch_payment_meta_map( $payment_ids, 'currency' );
 
-    if ( empty( $meta_map ) )
+    if ( empty( $meta_map ) && empty( $currency_map ) )
         return $payments;
 
     foreach ( $payments as $key => $payment ) {
@@ -72,6 +89,9 @@ function pms_reports_prefetch_base_currency_amounts_for_payments( $payments ) {
 
         if ( isset( $meta_map[ $payment_id ] ) )
             $payments[ $key ]['base_currency_amount_meta'] = $meta_map[ $payment_id ];
+
+        if ( isset( $currency_map[ $payment_id ] ) )
+            $payments[ $key ]['currency_meta'] = $currency_map[ $payment_id ];
     }
 
     return $payments;
@@ -97,6 +117,30 @@ function pms_reports_get_payment_base_currency_amount( $payment ) {
 }
 
 /**
+ * Returns the currency a payment row was charged in.
+ *
+ * Reads the prefetched payment meta `currency` first, unless the payment's gateway cannot charge it, then the row's
+ * `currency` column, then the site currency. Unlike pms_get_payment_currency(), it does not apply the
+ * `pms_get_payment_currency` filter. Callers pass the result through the `pms_reports_payment_currency` filter.
+ *
+ * @param array $payment Payment row, with the meta that pms_reports_prefetch_base_currency_amounts_for_payments() attaches.
+ * @return string
+ */
+function pms_reports_get_payment_currency( $payment ) {
+
+    $currency = pms_normalize_currency_code( isset( $payment['currency_meta'] ) ? $payment['currency_meta'] : '' );
+
+    if ( $currency !== '' && ! pms_gateway_can_charge_currency( isset( $payment['payment_gateway'] ) ? $payment['payment_gateway'] : '', $currency ) )
+        $currency = '';
+
+    if ( $currency === '' )
+        $currency = pms_normalize_currency_code( isset( $payment['currency'] ) ? $payment['currency'] : '' );
+
+    return $currency !== '' ? $currency : pms_get_active_currency();
+
+}
+
+/**
  * Convert a payment line amount to the site's default currency for reports.
  *
  * @param float      $amount
@@ -115,7 +159,7 @@ function pms_reports_convert_amount_to_default_currency( $amount, $payment, $arg
 
     $args             = wp_parse_args( $args, $defaults );
     $default_currency = pms_get_active_currency();
-    $currency = ! empty( $payment['currency'] ) ? $payment['currency'] : $default_currency;
+    $currency = pms_reports_get_payment_currency( $payment );
     $currency = apply_filters( 'pms_reports_payment_currency', $currency, $payment );
 
     $base_currency_amount = pms_reports_get_payment_base_currency_amount( $payment );
@@ -203,7 +247,7 @@ function pms_reports_aggregate_refunds( $refunded_payments ) {
     $refunded_payments = pms_reports_prefetch_base_currency_amounts_for_payments( $refunded_payments );
 
     foreach ( $refunded_payments as $payment ) {
-        $currency      = ! empty( $payment['currency'] ) ? $payment['currency'] : $default_currency;
+        $currency      = pms_reports_get_payment_currency( $payment );
         $currency      = apply_filters( 'pms_reports_payment_currency', $currency, $payment );
         $refund_amount = pms_get_payment_refund_amount( $payment['id'], $payment );
 

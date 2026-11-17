@@ -700,8 +700,11 @@ jQuery(function ($) {
             ( !$( 'input[type=radio][name=pay_gate]:checked' ).is(':disabled') || !$('input[type=hidden][name=pay_gate]').is(':disabled') ) 
         ){
 
+            let $pms_selected_paygate = $( 'input[type=radio][name=pay_gate]:checked' ).length > 0 ? $( 'input[type=radio][name=pay_gate]:checked' ) : $( 'input[type=hidden][name=pay_gate]' )
+
             // Also verify that the selected plan is not free
-            if( $pms_checked_subscription.data('price') > 0 ){
+            // A checkout that charges nothing now but bills later (100% first payment discount, Pro-Rate free period) still needs the button, so the payer can save PayPal for those payments
+            if( $pms_checked_subscription.data('price') > 0 || ( $.pms_checkout_is_setup_intents() && !$pms_selected_paygate.is(':disabled') ) ){
 
                 let show_button = true
 

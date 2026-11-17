@@ -1120,6 +1120,7 @@
 <?php __("Billing details updated by <strong>%s</strong>.", "paid-member-subscriptions"); ?>
 <?php __("Billing details synced with the user's account by <strong>%s</strong>.", "paid-member-subscriptions"); ?>
 <?php __("Payment was reverted to failed because the payment method registration is required but it failed.", "paid-member-subscriptions"); ?>
+<?php __('Payment currency corrected from <strong>%1$s</strong> to <strong>%2$s</strong>, the currency saved in the payment details.', 'paid-member-subscriptions' ); ?>
 <?php __("Request", "paid-member-subscriptions"); ?>
 <?php __("Changed data", "paid-member-subscriptions"); ?>
 <?php __("Response", "paid-member-subscriptions"); ?>
@@ -2002,6 +2003,7 @@
 <?php __("Define custom labels or symbols for any additional currencies in use.", "paid-member-subscriptions"); ?>
 <?php __("Checkout currency switched to <strong>%s</strong> based on the automatically detected user location and the user selected currency.", "paid-member-subscriptions"); ?>
 <?php __("Extra currency price of <strong>%s</strong> converted to <strong>%s</strong>.", "paid-member-subscriptions"); ?>
+<?php __('The <strong>%1$s %2$s</strong> payment could not be converted to the default currency, because no exchange rate or currency converter is available.', 'paid-member-subscriptions' ); ?>
 <?php __("Currency availability", "paid-member-subscriptions"); ?>
 <?php __("Choose the currencies for which the discount code will be valid. If none selected, the code will apply to all.", "paid-member-subscriptions"); ?>
 <?php __("Other Currencies", "paid-member-subscriptions"); ?>
@@ -2810,7 +2812,11 @@
 <?php __("Waiting to receive Instant Payment Notification (IPN) from <strong>PayPal</strong>.", "paid-member-subscriptions"); ?>
 <?php __("Instant Payment Notification (IPN) received from PayPal.", "paid-member-subscriptions"); ?>
 <?php __("Instant Payment Notification (IPN) not received from PayPal.", "paid-member-subscriptions"); ?>
+<?php __("PayPal reported the payment as pending. Waiting for PayPal to complete it.", "paid-member-subscriptions"); ?>
+<?php __("Reason: <strong>%s</strong>", "paid-member-subscriptions"); ?>
 <?php __("PayPal IPN rejected because it does not match the pending payment.", "paid-member-subscriptions"); ?>
+<?php __('PMS accepted PayPal renewal %1$s at <strong>%4$s %5$s</strong> through the <strong>%6$s</strong> match. The earlier exact check expected %2$s %3$s and would have rejected it.', 'paid-member-subscriptions' ); ?>
+<?php __('PMS accepted this PayPal renewal through the <strong>%1$s</strong> match, where the earlier exact check would have rejected it. Details are logged on initial payment #%2$s.', 'paid-member-subscriptions' ); ?>
 <?php __('Subscription #%1$s was deleted, but PayPal could not cancel its profile <strong>%2$s</strong>.', 'paid-member-subscriptions' ); ?>
 <?php __('Your %3$s PayPal API credentials %4$s are missing. In order to make payments you will need to add your API credentials %1$s here %2$s.', 'paid-member-subscriptions' ); ?>
 <?php __('Your <strong>PayPal API credentials</strong> are missing. In order to make payments you will need to add your API credentials %1$s here %2$s.', 'paid-member-subscriptions' ); ?>
@@ -2826,6 +2832,7 @@
 <?php __("User was redirected to the payment method's website to complete the payment.", "paid-member-subscriptions"); ?>
 <?php __("User returned to the website from the payment method's website.", "paid-member-subscriptions"); ?>
 <?php __("Payment Intent has failed.", "paid-member-subscriptions"); ?>
+<?php __("Payment Intent %s does not match this payment, so it was not used to complete it.", "paid-member-subscriptions"); ?>
 <?php __('Stripe webhook received: %1$s. Event ID: %2$s', 'paid-member-subscriptions' ); ?>
 <?php __("Payment was refunded in the Stripe Dashboard.", "paid-member-subscriptions"); ?>
 <?php __("Stripe dispute %s was lost and the disputed amount was returned to the customer.", "paid-member-subscriptions"); ?>
@@ -3423,6 +3430,7 @@
 <?php __("Disconnecting your account will stop all payments from being processed.", "paid-member-subscriptions"); ?>
 <?php __("Connect your existing PayPal account or create a new one to start accepting payments. Press the button above to start.", "paid-member-subscriptions"); ?>
 <?php __("You will be redirected back here once the process is completed.", "paid-member-subscriptions"); ?>
+<?php __('<strong>Warning:</strong> your website sends the %1$s header, which stops the PayPal window from reporting back to this page, so the connection cannot be completed. Change it to %2$s, or remove it, in your security plugin, server or CDN settings, then connect again.', 'paid-member-subscriptions' ); ?>
 <?php __("PayPal Customer ID", "paid-member-subscriptions"); ?>
 <?php __("PayPal Vault ID", "paid-member-subscriptions"); ?>
 <?php __("Deprecation notice", "paid-member-subscriptions"); ?>

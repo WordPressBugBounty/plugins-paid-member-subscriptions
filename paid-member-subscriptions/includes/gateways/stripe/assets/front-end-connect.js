@@ -33,6 +33,7 @@ async function pms_stripe_maybe_load_gateway( $ ) {
     var cardIsEmpty = true
     var recreating_payment_element = false
     var email_change_debounce_timer = null
+    var email_change_disabled_fields = $()
 
     var subscription_plan_selector = 'input[name=subscription_plans]'
     var paygate_selector           = 'input.pms_pay_gate'
@@ -458,16 +459,19 @@ async function pms_stripe_maybe_load_gateway( $ ) {
         let element = $(this)
         let email = $(this).val()
 
-        // Clear any pending debounce timer
-        if( email_change_debounce_timer ){
-            clearTimeout( email_change_debounce_timer )
-        }
-
         if( email.length > 0 ){
-            
+
+            // Restart any pending rebuild. An empty email must not cancel it, or the fields it disabled stay disabled
+            if( email_change_debounce_timer ){
+                clearTimeout( email_change_debounce_timer )
+            }
+
             // Disable the input to prevent multiple submissions
             element.attr('disabled', true)
-            
+
+            // Remember every disabled field, since a reset timer must still re-enable the fields disabled before it
+            email_change_disabled_fields = email_change_disabled_fields.add( element )
+
             pms_stripe_show_spinner()
 
             email_change_debounce_timer = setTimeout( function(){
@@ -482,7 +486,8 @@ async function pms_stripe_maybe_load_gateway( $ ) {
 
                 setTimeout( function(){
                     stripeConnectInit()
-                    element.attr('disabled', false)
+                    email_change_disabled_fields.attr('disabled', false)
+                    email_change_disabled_fields = $()
                     recreating_payment_element = false
                 }, 300 )
 
@@ -887,12 +892,13 @@ async function pms_stripe_maybe_load_gateway( $ ) {
             } else if (result.error && result.error.type && result.error.type == 'validation_error')
                 $.pms_form_reset_submit_button(current_button)
             else {
-                if (result.error && result.error.setup_intent)
+                if (result.error && result.error.setup_intent) {
                     token = { id: result.error.setup_intent.id }
-                else if (result.setupIntent)
+                } else if (result.setupIntent) {
                     token = { id: result.setupIntent.payment_method }
-                else
+                } else {
                     token = ''
+                }
 
                 stripeTokenHandler(token, $(current_button).closest('form'))
             }

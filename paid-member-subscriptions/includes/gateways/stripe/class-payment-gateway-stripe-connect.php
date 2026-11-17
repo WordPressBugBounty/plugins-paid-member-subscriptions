@@ -226,9 +226,11 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
         }
 
+        $is_trial_or_zero = empty( $payment->id ) || $payment->amount == 0 || ( !is_null( $this->sign_up_amount ) && $this->sign_up_amount == 0 );
+
         if( !empty( $_REQUEST['stripe_confirmation_token'] ) ){
 
-            if( ( PMS_Form_Handler::checkout_has_trial() && PMS_Form_Handler::user_can_access_trial( $this->subscription_plan ) && ( !isset( $payment->id ) || $payment->amount == 0 ) ) || ( isset( $payment->id ) && $payment->amount == 0 ) || ( !is_null( $this->sign_up_amount ) && $this->sign_up_amount == 0 ) ){
+            if( $is_trial_or_zero ){
 
                 $intent = $this->create_setup_intent( sanitize_text_field( $_REQUEST['stripe_confirmation_token'] ), $subscription );
 
@@ -305,6 +307,9 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
             }
         }
+
+        if( $is_trial_or_zero )
+            return false;
 
         return true;
 
@@ -487,10 +492,16 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
             
         } else if( !empty( $_REQUEST['payment_intent'] ) ){
 
+            $intent_id = sanitize_text_field( $_REQUEST['payment_intent'] );
+
+            // The intent ID comes from the request, so it can belong to a different checkout
+            if( !$this->can_resume_intent( $intent_id, $payment, $subscription_id ) )
+                return false;
+
             if( !empty( $_REQUEST['setup_intent'] ) && $_REQUEST['setup_intent'] == true ){
-                $intent = $this->stripe_client->setupIntents->retrieve( sanitize_text_field( $_REQUEST['payment_intent'] ) );
+                $intent = $this->stripe_client->setupIntents->retrieve( $intent_id );
             } else {
-                $intent = $this->stripe_client->paymentIntents->retrieve( sanitize_text_field( $_REQUEST['payment_intent'] ) );
+                $intent = $this->stripe_client->paymentIntents->retrieve( $intent_id );
             }
 
             if( $form_location == 'stripe_return_url' ){
@@ -500,6 +511,15 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
                 if( !empty( $payment->id ) )
                     $payment->log_data( 'stripe_intent_returned_after_redirect' );
+
+            }
+
+            if( !$this->intent_matches_payment( $intent, $payment, $subscription_id ) ){
+
+                if( !empty( $payment->id ) )
+                    $payment->log_data( 'stripe_intent_mismatch', array( 'payment_intent_id' => $intent->id ) );
+
+                return false;
 
             }
 
@@ -535,11 +555,12 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
                     if( $intent->status == 'succeeded' ){
 
                         $payment->log_data( 'stripe_intent_confirmed' );
-                        $payment->update( array( 'status' => 'completed' ) );
+                        $payment->update( array( 'status' => 'completed', 'transaction_id' => $intent->id ) );
     
                     } else if ( $intent->status == 'processing' ){
     
                         $payment->log_data( 'stripe_intent_processing' );
+                        $payment->update( array( 'transaction_id' => $intent->id ) );
     
                     }
 
@@ -551,6 +572,11 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
                     $checkout_data['subscription_plans'] = $payment->subscription_id;
                     $checkout_data['checkout_amount']    = $payment->amount;
+
+                } else if( !empty( $intent->metadata->subscription_plan_id ) ){
+
+                    // A free trial has no payment, so the plan is the one the SetupIntent was created for, not the one in the request
+                    $checkout_data['subscription_plans'] = absint( $intent->metadata->subscription_plan_id );
 
                 }
 
@@ -676,8 +702,6 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
                         preg_replace( '/\D/', '', $subscription->billing_next_payment ),
                         pms_get_subscription_payments_retry_count( $subscription->id )
                     );
-
-                    $request_options['max_network_retries'] = 2;
 
                 }
 
@@ -847,7 +871,7 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
             }
 
             // Convert amount to cents for Stripe
-            $payment_currency = !empty( $payment->currency ) ? strtoupper( $payment->currency ) : pms_get_active_currency();
+            $payment_currency = pms_get_payment_currency( $payment );
             $refund_amount = $this->process_amount( $amount, $payment_currency );
 
             $refund_data = array(
@@ -1010,6 +1034,77 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
         $supplied = !empty( $_GET[ $param ] ) ? sanitize_text_field( wp_unslash( $_GET[ $param ] ) ) : '';
 
         return !empty( $intent->client_secret ) && $supplied !== '' && hash_equals( (string) $intent->client_secret, $supplied );
+
+    }
+
+    /**
+     * Whether an intent ID from the request is one this plugin stored for the payment or subscription, and no other payment used it
+     *
+     * @param string      $intent_id
+     * @param PMS_Payment $payment
+     * @param int         $subscription_id
+     * @return bool
+     */
+    private function can_resume_intent( $intent_id, $payment, $subscription_id ){
+
+        if( !empty( $payment->id ) && $payment->member_subscription_id != $subscription_id )
+            return false;
+
+        $stored_intent_ids = array(
+            pms_get_member_subscription_meta( $subscription_id, 'pms_stripe_next_action_intent_id', true ),
+            pms_get_member_subscription_meta( $subscription_id, 'pms_stripe_initial_payment_intent', true ),
+        );
+
+        if( !empty( $payment->id ) ){
+            $stored_intent_ids[] = $payment->transaction_id;
+            $stored_intent_ids[] = pms_get_payment_meta( $payment->id, 'pms_stripe_next_action_intent_id', true );
+        }
+
+        if( !in_array( $intent_id, array_filter( $stored_intent_ids ), true ) )
+            return false;
+
+        foreach( pms_get_payments( array( 'transaction_id' => $intent_id ) ) as $intent_payment ){
+            if( empty( $payment->id ) || $intent_payment->id != $payment->id )
+                return false;
+        }
+
+        return true;
+
+    }
+
+    /**
+     * Whether a retrieved intent was created for this payment and subscription and charges the payment's amount
+     *
+     * @param object      $intent
+     * @param PMS_Payment $payment
+     * @param int         $subscription_id
+     * @return bool
+     */
+    private function intent_matches_payment( $intent, $payment, $subscription_id ){
+
+        if( empty( $intent->metadata->subscription_id ) || $intent->metadata->subscription_id != $subscription_id )
+            return false;
+
+        // A SetupIntent only saves the payment method, so it can't pay for an amount
+        if( $intent->object == 'setup_intent' )
+            return empty( $payment->id ) || $payment->amount == 0;
+
+        if( empty( $payment->id ) )
+            return false;
+
+        // Versions 3.0.9 to 3.1.2 sent payment_id 0
+        if( !empty( $intent->metadata->payment_id ) && $intent->metadata->payment_id != $payment->id )
+            return false;
+
+        $currency = !empty( $payment->currency ) ? $payment->currency : pms_get_active_currency();
+
+        if( strtolower( $intent->currency ) != strtolower( $currency ) )
+            return false;
+
+        // The payment amount is stored in a FLOAT column, which keeps 6 significant digits (12345.67 is read back as 12345.7)
+        $tolerance = max( 1, $intent->amount * 0.00001 );
+
+        return abs( $intent->amount - $this->process_amount( $payment->amount, strtoupper( $currency ) ) ) <= $tolerance;
 
     }
 
@@ -1406,7 +1501,7 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
         $form_location = $intent->metadata->request_location;
 
-        if( !in_array( $form_location, array( 'upgrade_subscription', 'downgrade_subscription', 'change_subscription', 'renew_subscription' ) ) )
+        if( !in_array( $form_location, array( 'upgrade_subscription', 'downgrade_subscription', 'change_subscription', 'renew_subscription', 'gift_subscription' ) ) )
             return;
 
         $subscription = pms_get_member_subscription( $subscription_id );
@@ -1593,12 +1688,37 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
 
                 break;
 
+            // gift subscriptions form
+            case 'gift_subscription':
+
+                // Gift Subscriptions 1.9.19 and older read the gifted plan from the request, which the buyer controls. Gift only the plan that was paid for.
+                $gift_payment = pms_get_payment( $payment_id );
+
+                if( isset( $_POST['subscription_plans'] ) && !empty( $gift_payment->subscription_id ) )
+                    $_POST['subscription_plans'] = $gift_payment->subscription_id;
+
+                $subscription_data = apply_filters( 'pms_checkout_subscription_data_before_update', $subscription_data, $subscription, $form_location );
+
+                // Gift Subscriptions sets the gifted plan only once the gift payment is completed, and only once. Otherwise
+                // the plan stays empty, and the purchaser's subscription must not move to plan 0.
+                if( empty( $subscription_data['subscription_plan_id'] ) )
+                    break;
+
+                $subscription->update( $subscription_data );
+
+                do_action( 'pms_gift_subscription_form_after_subscription_update', $subscription, $subscription_data );
+
+                break;
+
             default:
                 break;
 
         }
 
-        do_action( 'pms_after_checkout_is_processed', $subscription, $form_location );
+        $payment_id = !empty( $payment_id ) ? (int) $payment_id : 0;
+
+        if( pms_claim_checkout_processed( $payment_id ) )
+            do_action( 'pms_after_checkout_is_processed', $subscription, $form_location, $payment_id );
 
         return true;
 
@@ -2056,7 +2176,7 @@ Class PMS_Payment_Gateway_Stripe_Connect extends PMS_Payment_Gateway {
         if( !empty( $minor_unit_amount ) ){
             $refund_amount = (int) $minor_unit_amount;
 
-            if( !in_array( $payment->currency, $this->get_zero_decimal_currencies(), true ) )
+            if( !in_array( pms_get_payment_currency( $payment ), $this->get_zero_decimal_currencies(), true ) )
                 $refund_amount = $refund_amount / 100;
 
             $refund_amount = min( $refund_amount, (float) $payment->amount );

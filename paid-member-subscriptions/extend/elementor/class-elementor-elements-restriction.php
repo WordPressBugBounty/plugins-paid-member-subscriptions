@@ -27,6 +27,12 @@ class PMS_Elementor_Content_Restriction extends PMS_Elementor {
 		// Disable Element Cache when Content Restriction rules are setup for an element
 		add_filter( 'elementor/element/is_dynamic_content', array( $this, 'are_content_restriction_rules_setup' ), 20, 3 );
 
+		// Auto-excerpts read the plain-text copy of every element that Elementor saves in post_content
+		add_filter( 'content_pagination', array( $this, 'excerpt_pages_without_hidden_elements' ), 999, 2 );
+
+		// Profile Builder rebuilds the same plain-text copy, so both plugins share one hide check and the last rebuild keeps both restrictions
+		add_filter( 'cozmoslabs_elementor_excerpt_hide_element', array( $this, 'hide_element_from_excerpt' ), 10, 2 );
+
 		// Add Elementor templates to the list of content restriction templates templates
 		add_filter( 'pms_content_restriction_templates', array( $this, 'add_elementor_templates' ), 10, 1 );
 	}
@@ -343,8 +349,17 @@ class PMS_Elementor_Content_Restriction extends PMS_Elementor {
 
 	public function are_content_restriction_rules_setup( $are_rules_setup, $data, $element ){
 
+		if( $this->has_restriction_rules( $data ) )
+			return true;
+
+		return $are_rules_setup;
+
+	}
+
+	private function has_restriction_rules( $data ){
+
 		if( empty( $data['settings'] ) )
-			return $are_rules_setup;
+			return false;
 
 		if( isset( $data['settings']['pms_restriction_loggedin_users'] ) && $data['settings']['pms_restriction_loggedin_users'] == 'yes' )
 			return true;
@@ -358,8 +373,67 @@ class PMS_Elementor_Content_Restriction extends PMS_Elementor {
 		if( isset( $data['settings']['pms_restriction_subscription_plans'] ) && !empty( $data['settings']['pms_restriction_subscription_plans'] ) )
 			return true;
 
-		return $are_rules_setup;
+		return false;
 
+	}
+
+	public function excerpt_pages_without_hidden_elements( $pages, $post ) {
+		if( !doing_filter( 'get_the_excerpt' ) )
+			return $pages;
+
+		$elementor_data = get_post_meta( $post->ID, '_elementor_data', true );
+
+		if( is_string( $elementor_data ) && strpos( $elementor_data, 'pms_restriction_' ) === false )
+			return $pages;
+
+		$document = \Elementor\Plugin::$instance->documents->get( $post->ID );
+
+		if( !$document || !$document->is_built_with_elementor() )
+			return $pages;
+
+		$removed  = false;
+		$elements = $this->remove_hidden_elements( $document->get_elements_data(), $removed );
+
+		if( !$removed )
+			return $pages;
+
+		// Same parsing mode Elementor uses when it saves the plain-text copy
+		$dynamic_tags = \Elementor\Plugin::$instance->dynamic_tags;
+		$parsing_mode = $dynamic_tags->get_parsing_mode();
+		$dynamic_tags->set_parsing_mode( \Elementor\Core\DynamicTags\Manager::MODE_REMOVE );
+
+		$plain_text = \Elementor\Plugin::$instance->db->get_plain_text_from_data( $elements );
+
+		$dynamic_tags->set_parsing_mode( $parsing_mode );
+
+		return array( $plain_text );
+	}
+
+	public function hide_element_from_excerpt( $hide, $element_data ) {
+		if( $hide || !$this->has_restriction_rules( $element_data ) )
+			return $hide;
+
+		$element = \Elementor\Plugin::$instance->elements_manager->create_element_instance( $element_data );
+
+		return !$element || $this->is_hidden( $element );
+	}
+
+	private function remove_hidden_elements( $elements, &$removed ) {
+		$kept = array();
+
+		foreach( $elements as $element_data ) {
+			if( apply_filters( 'cozmoslabs_elementor_excerpt_hide_element', false, $element_data ) ) {
+				$removed = true;
+				continue;
+			}
+
+			if( !empty( $element_data['elements'] ) )
+				$element_data['elements'] = $this->remove_hidden_elements( $element_data['elements'], $removed );
+
+			$kept[] = $element_data;
+		}
+
+		return $kept;
 	}
 
 	public function add_elementor_templates( $templates ){

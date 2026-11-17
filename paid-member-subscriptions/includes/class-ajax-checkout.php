@@ -146,24 +146,30 @@ Class PMS_AJAX_Checkout_Handler {
         if( empty( $intent_id ) )
             die();
 
-        $user_id              = !empty( $_POST['user_id'] ) ? absint( $_POST['user_id'] ) : 0;
-        $subscription_id      = !empty( $_POST['subscription_id'] ) ? absint( $_POST['subscription_id'] ) : 0;
-        $subscription_plan_id = !empty( $_POST['subscription_plan_id'] ) ? absint( $_POST['subscription_plan_id'] ) : 0;
+        $user_id         = !empty( $_POST['user_id'] ) ? absint( $_POST['user_id'] ) : 0;
+        $subscription_id = !empty( $_POST['subscription_id'] ) ? absint( $_POST['subscription_id'] ) : 0;
+        $payment_id      = !empty( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
 
-        if( empty( $user_id ) || empty( $subscription_id ) || empty( $subscription_plan_id ) )
+        if( empty( $user_id ) || empty( $subscription_id ) )
             die();
 
-        // Verify that the target subscription belongs to the correct user
-        // Look it up by id, not by the plan sent with the request. When the webhook completes an upgrade, downgrade
-        // or change before this request, the subscription is already on the new plan.
         $subscription = pms_get_member_subscription( $subscription_id );
 
-        if( empty( $subscription->id ) || $subscription->user_id != $user_id )
+        if( empty( $subscription->id ) )
+            die();
+
+        // A gift for an existing member moves the subscription to the recipient when its payment completes, and the webhook
+        // can do that before this request. The buyer still owns that payment and finishes its checkout.
+        $gift_buyer_id = $this->get_given_gift_buyer_id( $subscription, $payment_id );
+        $owner_id      = !empty( $gift_buyer_id ) ? $gift_buyer_id : $subscription->user_id;
+
+        if( $owner_id != $user_id )
+            die();
+
+        if( is_user_logged_in() && get_current_user_id() != $owner_id )
             die();
 
         // If payment doesn't exist, this is a free trial payment and we need to use subscription meta to determine if a next action was required
-        $payment_id = !empty( $_POST['payment_id'] ) ? absint( $_POST['payment_id'] ) : 0;
-
         if( empty( $payment_id ) ){
 
             $next_action       = pms_get_member_subscription_meta( $subscription_id, 'pms_stripe_next_action', true );
@@ -174,7 +180,7 @@ Class PMS_AJAX_Checkout_Handler {
 
             $payment = pms_get_payment( $payment_id );
 
-            if( !isset( $payment->id ) )
+            if( !isset( $payment->id ) || $payment->member_subscription_id != $subscription_id || $payment->user_id != $user_id )
                 die();
 
             $next_action       = pms_get_payment_meta( $payment->id, 'pms_stripe_next_action', true );
@@ -211,6 +217,15 @@ Class PMS_AJAX_Checkout_Handler {
         if( empty( $next_action_token ) || empty( $request_token ) || !hash_equals( (string) $next_action_token, $request_token ) )
             die();
 
+        // The gift is paid and already belongs to the recipient, so nothing is left to process. Only show the buyer the gift message.
+        if( !empty( $gift_buyer_id ) ){
+            echo json_encode( array(
+                'success'      => true,
+                'redirect_url' => self::get_success_redirect_url( 'gift_subscription', $payment_id ),
+            ) );
+            die();
+        }
+
         // The stored SCA state is deleted by the gateway once the intent is confirmed resolved, not
         // here, so a request that never reaches a resolved intent leaves the member able to retry.
 
@@ -232,6 +247,27 @@ Class PMS_AJAX_Checkout_Handler {
 
         $gateway->process_payment( $payment_id, $subscription_id );
         die();
+
+    }
+
+    /**
+     * Get the buyer of a gift for an existing member, when completing this gift payment already moved the subscription to that member
+     *
+     * @param  object   $subscription   PMS_Member_Subscription object
+     * @param  int      $payment_id
+     * @return int
+     */
+    private function get_given_gift_buyer_id( $subscription, $payment_id ){
+
+        if( empty( $payment_id ) || pms_get_member_subscription_meta( $subscription->id, 'gift_payment_id', true ) != $payment_id )
+            return 0;
+
+        $payment = pms_get_payment( $payment_id );
+
+        if( empty( $payment->id ) || $payment->status != 'completed' || pms_get_payment_meta( $payment->id, 'gift_activated_user_id', true ) != $subscription->user_id )
+            return 0;
+
+        return (int)$payment->user_id;
 
     }
 
@@ -614,7 +650,7 @@ Class PMS_AJAX_Checkout_Handler {
         }
 
         // Same filter as PMS_Form_Handler::process_checkout()
-        return apply_filters( 'pms_get_redirect_url', $redirect_url, $form_location );
+        return apply_filters( 'pms_get_redirect_url', $redirect_url, $form_location, $payment_id );
 
     }
 

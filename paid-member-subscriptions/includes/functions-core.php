@@ -1490,26 +1490,26 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
                 $show_notification = true;
 
-                if( defined( 'PROFILE_BUILDER_VERSION' ) && version_compare( PROFILE_BUILDER_VERSION, '3.12.6', '>=' ) )
+                // Profile Builder prints the combined banner on these pages when its own promo is on.
+                if( function_exists( 'wppb_bf_show_shared_promotion' ) && wppb_bf_show_shared_promotion() )
                     $show_notification = false;
 
-                if( defined( 'PROFILE_BUILDER_VERSION' ) && class_exists( 'WPPB_Plugin_Notifications' ) ){
+                if( class_exists( 'WPPB_Plugin_Notifications' ) ){
                     $wppb_notifications_instance = WPPB_Plugin_Notifications::get_instance();
 
                     if( $wppb_notifications_instance->is_plugin_page() )
                         $show_notification = true;
                 }
 
-                //Don't show if PB can show the notification
                 if( $show_notification === true ){
                     $notification_id = 'pms_bf_2026';
 
-                    $message = '<img style="float: left; margin: 10px 8px 10px 0px; max-width: 20px;" src="' . PMS_PLUGIN_DIR_URL . 'assets/images/pms-logo.svg" />';
+                    $message = '<img style="float: left; margin: 4px 8px 0 0; max-width: 20px;" src="' . PMS_PLUGIN_DIR_URL . 'assets/images/pms-logo.svg" />';
                     
                     if ( defined( 'PMS_PAID_PLUGIN_DIR' ) && $license_status == 'expired' )
-                        $message .= '<p style="padding-right:30px;font-size: 110%;"><strong>Upgrade to Paid Member Subscriptions PRO this Black Friday!</strong> Don\'t miss our only sale of the year. <a href="https://www.cozmoslabs.com/account/?utm_source=wp-dashboard&utm_medium=client-site&utm_campaign=pms-bf-2026-renewal" target="_blank">Learn more</a></p>';
+                        $message .= '<p style="margin:0;padding:2px 30px 2px 0;font-size: 110%;"><strong>Upgrade to Paid Member Subscriptions PRO this Black Friday!</strong> Don\'t miss our only sale of the year. <a href="https://www.cozmoslabs.com/account/?utm_source=wp-dashboard&utm_medium=client-site&utm_campaign=pms-bf-2026-renewal" target="_blank">Learn more</a></p>';
                     else
-                        $message .= '<p style="padding-right:30px;font-size: 110%;"><strong>Upgrade to Paid Member Subscriptions PRO this Black Friday!</strong> Don\'t miss our only sale of the year. <a href="https://www.cozmoslabs.com/black-friday/?utm_source=wp-dashboard&utm_medium=client-site&utm_campaign=pms-bf-2026" target="_blank">Learn more</a></p>';
+                        $message .= '<p style="margin:0;padding:2px 30px 2px 0;font-size: 110%;"><strong>Upgrade to Paid Member Subscriptions PRO this Black Friday!</strong> Don\'t miss our only sale of the year. <a href="https://www.cozmoslabs.com/black-friday/?utm_source=wp-dashboard&utm_medium=client-site&utm_campaign=pms-bf-2026" target="_blank">Learn more</a></p>';
                     
                     $message .= '<a href="' . esc_url( wp_nonce_url( add_query_arg( array( 'pms_dismiss_admin_notification' => $notification_id ) ), 'pms_plugin_notice_dismiss' ) ) . '" type="button" class="notice-dismiss"><span class="screen-reader-text">' . __( 'Dismiss this notice.', 'paid-member-subscriptions' ) . '</span></a>';
             
@@ -1566,6 +1566,16 @@ if ( ! defined( 'ABSPATH' ) ) exit;
     function pms_notices_remove_repackage_notice_wrapper( $processed_message, $original_message ){
 
         return '<div id="pms_add_ons_repackage" class="notice pms_add_ons_repackage notice-warning">'.$original_message.'</div>';
+
+    }
+
+    /**
+     * The general notice wraps every message in a paragraph. This banner already contains its own blocks.
+     */
+    add_filter( 'pms_bf_2026_notification_message', 'pms_bf_notification_markup', 20, 2 );
+    function pms_bf_notification_markup( $processed_message, $original_message ){
+
+        return '<div id="pms_bf_2026" class="notice pms-notice notice-info" style="position:relative">'.$original_message.'</div>';
 
     }
 

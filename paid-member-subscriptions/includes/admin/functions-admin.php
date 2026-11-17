@@ -1029,7 +1029,7 @@ function pms_render_modal_payment_refund( $payment ){
 
                 <div class="pms-modal__fullrow pms-modal__payment-amount">
                     <label class="pms-modal__label"><?php esc_html_e( 'Payment Amount: ', 'paid-member-subscriptions' ); ?></label>
-                    <strong><?php echo esc_attr( pms_format_price( $payment->amount, $payment->currency ) ) ?></strong>
+                    <strong><?php echo esc_attr( pms_format_price( $payment->amount, pms_get_payment_currency( $payment ) ) ) ?></strong>
                 </div>
 
                 <div class="pms-modal__fullrow pms-modal__payment-gateway">

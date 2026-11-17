@@ -267,8 +267,12 @@ function pms_add_restricted_post_preview( $message, $content, $post, $user_ID ) 
     if( $preview_option == 'more-tag' ) {
         /* if we don't have a more tag restrict the whole post */
         if ( preg_match('/<!--more(.*?)?-->/', $post->post_content) ) {
-            $content_parts = get_extended($post->post_content);
-            $preview = $content_parts['main'];
+            if( function_exists( 'has_blocks' ) && has_blocks( $post->post_content ) ) {
+                $preview = pms_get_blocks_before_more_tag( $post->post_content );
+            } else {
+                $content_parts = get_extended($post->post_content);
+                $preview = $content_parts['main'];
+            }
         }
     }
 
@@ -282,12 +286,105 @@ function pms_add_restricted_post_preview( $message, $content, $post, $user_ID ) 
      */
     $preview = apply_filters( 'pms_restricted_post_preview_content', $preview, $post, $user_ID );
 
-    // Return the preview
+    if( function_exists( 'has_blocks' ) && has_blocks( $preview ) )
+        return pms_restrict_saved_blocks_html( parse_blocks( $preview ) ) . $message;
+
     return wpautop( $preview ) . $message;
 
 }
 add_filter( 'pms_restriction_message_non_members', 'pms_add_restricted_post_preview', 30, 4 );
 add_filter( 'pms_restriction_message_logged_out', 'pms_add_restricted_post_preview', 30, 4 );
+
+
+/**
+ * Returns the markup of the top level blocks placed before the "more" tag, or an empty string if no block holds the tag
+ *
+ * The block holding the tag keeps its part before the tag only when it has no inner blocks: get_extended() can cut
+ * a block open, and the block parser in WordPress 7.1 and older then moves its inner blocks to the top level,
+ * out of a restricted parent block
+ *
+ * @param string $post_content
+ *
+ * @return string
+ *
+ */
+function pms_get_blocks_before_more_tag( $post_content ) {
+
+    $blocks = array();
+
+    foreach( parse_blocks( $post_content ) as $block ) {
+
+        if( ! preg_match( '/<!--more(.*?)?-->/', serialize_block( $block ) ) ) {
+            $blocks[] = $block;
+            continue;
+        }
+
+        if( empty( $block['innerBlocks'] ) && preg_match( '/<!--more(.*?)?-->/', $block['innerHTML'] ) ) {
+            $content_parts         = get_extended( $block['innerHTML'] );
+            $block['innerHTML']    = $content_parts['main'];
+            $block['innerContent'] = array( $content_parts['main'] );
+            $blocks[]              = $block;
+        }
+
+        return serialize_blocks( $blocks );
+
+    }
+
+    return '';
+
+}
+
+
+/**
+ * Builds the saved HTML of parsed blocks with block content restriction applied
+ *
+ * @param array $blocks Parsed blocks
+ *
+ * @return string
+ *
+ */
+function pms_restrict_saved_blocks_html( $blocks ) {
+
+    $output = '';
+
+    foreach( $blocks as $block ) {
+
+        $block_content = '';
+        $inner_index   = 0;
+
+        foreach( $block['innerContent'] as $chunk )
+            $block_content .= is_string( $chunk ) ? $chunk : pms_restrict_saved_blocks_html( array( $block['innerBlocks'][ $inner_index++ ] ) );
+
+        $output .= pms_render_blocks( $block_content, $block );
+
+    }
+
+    return $output;
+
+}
+
+
+/**
+ * Drops the manual excerpt of a restricted post, so wp_trim_excerpt() builds the excerpt from the_content,
+ * which adds the restriction message and the restricted post preview
+ *
+ * @param string $excerpt
+ * @param WP_Post|int|null $post
+ *
+ * @return string
+ *
+ */
+function pms_filter_restricted_post_excerpt( $excerpt, $post = null ) {
+
+    $post = get_post( $post );
+
+    if( ! empty( $excerpt ) && ! empty( $post ) && pms_is_post_restricted( $post->ID ) )
+        return '';
+
+    return $excerpt;
+
+}
+add_filter( 'get_the_excerpt', 'pms_filter_restricted_post_excerpt', 9, 2 );
 
 
 /**
@@ -953,11 +1050,17 @@ if ( isset( $pms_cr_settings['comments_restriction']['option'] ) && $pms_cr_sett
 
         if( !function_exists( 'wppb_exclude_restricted_comments' ) ){
             add_filter( 'the_comments', 'pms_exclude_restricted_comments', 10, 2 );
+
+            // comment feeds load their comments with their own query, which skips the_comments
+            add_action( 'wp', 'pms_exclude_restricted_comments_from_feeds' );
+
             function pms_exclude_restricted_comments( $comments, $query ){
                 if( !empty( $comments ) && !current_user_can( 'manage_options' ) ){
                     $user_id = get_current_user_id();
                     foreach ( $comments as $key => $comment ){
                         $post = get_post( $comment->comment_post_ID );
+                        if( empty( $post ) )
+                            continue;
                         if( ( $post->post_type == 'private-page' && $user_id != (int)$post->post_author ) || ( function_exists( 'wppb_content_restriction_is_post_restricted' ) && wppb_content_restriction_is_post_restricted( $comment->comment_post_ID ) ) || ( function_exists( 'pms_is_post_restricted' ) && pms_is_post_restricted( $comment->comment_post_ID ) ) ){
                             unset( $comments[$key] );
                         }
@@ -968,4 +1071,15 @@ if ( isset( $pms_cr_settings['comments_restriction']['option'] ) && $pms_cr_sett
         }
     }
 
+}
+
+function pms_exclude_restricted_comments_from_feeds(){
+    global $wp_query;
+
+    // Profile Builder runs the same check on comment feeds
+    if( !is_comment_feed() || empty( $wp_query->comments ) || false !== has_action( 'wp', 'wppb_exclude_restricted_comments_from_feeds' ) )
+        return;
+
+    $wp_query->comments      = array_values( pms_exclude_restricted_comments( $wp_query->comments, $wp_query ) );
+    $wp_query->comment_count = count( $wp_query->comments );
 }

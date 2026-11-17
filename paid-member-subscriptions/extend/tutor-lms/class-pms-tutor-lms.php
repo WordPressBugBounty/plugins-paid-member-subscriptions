@@ -801,10 +801,7 @@ class PMS_IN_TutorLMS {
      */
     public function is_user_enrolled( $course_id, $user_id ) {
 
-        // "tutor_utils()->is_enrolled" returns CPT details if the user is enrolled, otherwise it returns FALSE
-        $user_enrolled = tutor_utils()->is_enrolled( $course_id, $user_id ) === false ? false : true;
-
-        return $user_enrolled;
+        return (bool) tutor_utils()->is_enrolled( $course_id, $user_id );
     }
 
     /**

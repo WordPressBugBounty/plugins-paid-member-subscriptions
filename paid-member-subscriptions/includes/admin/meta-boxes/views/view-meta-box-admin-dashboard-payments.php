@@ -76,7 +76,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
             <div class="cozmoslabs-form-field-wrapper">
                 <p><?php echo esc_html( $payment_user->user_login ) . ' (' . esc_html( $payment_user->user_email ) . ')' ?></p>
-                <p class="pms-recent-payments-amount"><?php echo esc_html( pms_format_price( $payment->amount, $payment->currency ) ); ?></p>
+                <p class="pms-recent-payments-amount"><?php echo esc_html( pms_format_price( $payment->amount, pms_get_payment_currency( $payment ) ) ); ?></p>
                 <p class="cozmoslabs-description"><a href="<?php echo esc_url( add_query_arg( array( 'page' => 'pms-payments-page', 'pms-action' => 'edit_payment', 'payment_id' => $payment->id ), admin_url( 'admin.php' ) ) ); ?>"><?php echo esc_html__( 'View Details', 'paid-member-subscriptions' ); ?></a></p>
             </div>
 

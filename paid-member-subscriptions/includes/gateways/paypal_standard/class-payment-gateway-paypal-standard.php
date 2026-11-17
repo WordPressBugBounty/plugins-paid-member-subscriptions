@@ -91,7 +91,13 @@ Class PMS_Payment_Gateway_PayPal_Standard extends PMS_Payment_Gateway {
             'lc'            => get_locale(),
         );
 
-        $paypal_link .= http_build_query( apply_filters( 'pms_paypal_standard_args', $paypal_args, $this, $settings ) );
+        $paypal_args = apply_filters( 'pms_paypal_standard_args', $paypal_args, $this, $settings );
+
+        $paypal_link .= http_build_query( $paypal_args );
+
+        // Saved from the args this server sends, not from the subscr_signup IPN, whose amount3 comes from the buyer's browser
+        if( isset( $paypal_args['cmd'], $paypal_args['a3'], $paypal_args['currency_code'] ) && $paypal_args['cmd'] === '_xclick-subscriptions' )
+            pms_paypal_save_profile_terms( $payment, $paypal_args['a3'], $paypal_args['currency_code'] );
 
         do_action( 'pms_before_paypal_redirect', $paypal_link, $this, $settings );
 
@@ -202,7 +208,7 @@ Class PMS_Payment_Gateway_PayPal_Standard extends PMS_Payment_Gateway {
 
                     $payment->log_data( 'paypal_ipn_received', array( 'data' => $post_data, 'desc' => 'paypal IPN' ) );
 
-                    if ( ! pms_paypal_ipn_can_complete_pending_payment( $payment, $payment_data ) ) {
+                    if ( ! pms_paypal_ipn_can_complete_pending_payment( $payment, $payment_data, $post_data ) ) {
                         return;
                     }
 
@@ -298,6 +304,10 @@ Class PMS_Payment_Gateway_PayPal_Standard extends PMS_Payment_Gateway {
 
                      }
 
+                } elseif( $payment_data['status'] == 'pending' ) {
+
+                    pms_paypal_ipn_record_pending_payment( $payment, $payment_data, $post_data );
+
                 // If payment status is not complete, something happened, so log it in the payment
                 } else {
 
@@ -383,7 +393,7 @@ Class PMS_Payment_Gateway_PayPal_Standard extends PMS_Payment_Gateway {
             'TRANSACTIONID' => $payment->transaction_id,
             'REFUNDTYPE'    => 'Partial',
             'AMT'           => number_format( $amount, 2, '.', '' ),
-            'CURRENCYCODE'  => !empty( $payment->currency ) ? strtoupper( $payment->currency ) : pms_get_active_currency(),
+            'CURRENCYCODE'  => pms_get_payment_currency( $payment ),
         );
 
         // Add note if provided

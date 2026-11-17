@@ -2335,6 +2335,10 @@ Class PMS_Form_Handler {
 
                         $payment_response = $payment_gateway->process_payment( $payment->id, $subscription->id );
 
+                        // Some gateways answer with an array, and a failed payment there is array( 'success' => false, ... )
+                        if( is_array( $payment_response ) )
+                            $payment_response = !empty( $payment_response['success'] );
+
                         $subscription_data['billing_last_payment'] = date( 'Y-m-d H:i:s' );
 
                     /**
@@ -2569,8 +2573,12 @@ Class PMS_Form_Handler {
          *
          * @param object $subscription
          * @param string $form_location
+         * @param int    $payment_id    - 0 when the checkout has no payment, e.g. a free trial
          */
-        do_action( 'pms_after_checkout_is_processed', $subscription, $form_location );
+        $payment_id = isset( $payment->id ) ? (int) $payment->id : 0;
+
+        if( pms_claim_checkout_processed( $payment_id ) )
+            do_action( 'pms_after_checkout_is_processed', $subscription, $form_location, $payment_id );
 
         /**
          * Redirect right at the end if everything worked like it should have

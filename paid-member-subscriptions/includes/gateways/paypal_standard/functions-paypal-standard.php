@@ -256,15 +256,119 @@ function pms_paypal_log_ipn_mismatch( $payment, $data, $desc ) {
     ) );
 }
 
-function pms_paypal_ipn_matches_expected( $payment, $payment_data, $expected ) {
-    $expected_amount   = pms_paypal_normalize_amount( $expected['amount'] );
+/**
+ * Returns the normalized amounts an IPN may have, from either shape of the expected array
+ *
+ * @param array $expected Either an `amounts` list, whose entries are arrays with `amount`, `source` and `exact` or bare
+ *                        amounts, or a single `amount`, which must match exactly.
+ *
+ * @return array List of array( 'amount' => 2-dp string, 'source' => string, 'exact' => bool ).
+ *
+ */
+function pms_paypal_expected_amount_candidates( $expected ) {
+
+    if ( ! isset( $expected['amounts'] ) || ! is_array( $expected['amounts'] ) )
+        return isset( $expected['amount'] ) ? array( array( 'amount' => pms_paypal_normalize_amount( $expected['amount'] ), 'source' => 'expected', 'exact' => true ) ) : array();
+
+    $candidates = array();
+
+    foreach ( $expected['amounts'] as $candidate ) {
+
+        if ( ! is_array( $candidate ) )
+            $candidate = array( 'amount' => $candidate );
+
+        if ( ! isset( $candidate['amount'] ) )
+            continue;
+
+        $candidates[] = array(
+            'amount' => pms_paypal_normalize_amount( $candidate['amount'] ),
+            'source' => isset( $candidate['source'] ) ? $candidate['source'] : 'expected',
+            'exact'  => ! empty( $candidate['exact'] ),
+        );
+
+    }
+
+    return $candidates;
+
+}
+
+/**
+ * Returns how far a received PayPal amount may be from an expected amount that is not marked `exact`
+ *
+ * @param array       $payment_data IPN data.
+ * @param PMS_Payment $payment      The payment the IPN is matched against.
+ * @param array       $expected     What the IPN is matched against.
+ *
+ * @return float
+ *
+ */
+function pms_paypal_ipn_amount_tolerance( $payment_data, $payment, $expected ) {
+
+    /**
+     * Filters how far a PayPal amount may be from an expected amount that is not marked `exact`, and still be accepted
+     *
+     * @param float       $tolerance    Allowed difference, in the IPN currency, rounded to cents. Default 0.01. A negative value counts as 0.
+     * @param array       $payment_data IPN data.
+     * @param PMS_Payment $payment      The payment the IPN is matched against.
+     * @param array       $expected     What the IPN is matched against: an `amounts` list as pms_paypal_resolve_expected_recurring()
+     *                                  returns it, or a single `amount`.
+     *
+     */
+    return max( 0.0, (float) apply_filters( 'pms_paypal_ipn_amount_tolerance', 0.01, $payment_data, $payment, $expected ) );
+
+}
+
+/**
+ * Returns the first expected amount that a received amount matches
+ *
+ * An `exact` candidate must match to the cent. Any other may differ by up to the tolerance.
+ *
+ * @param string $received_amount Normalized received amount.
+ * @param array  $candidates      As pms_paypal_expected_amount_candidates() returns them.
+ * @param float  $tolerance       Allowed difference, rounded to cents.
+ *
+ * @return array|null The matching candidate, or null when none matches.
+ *
+ */
+function pms_paypal_match_amount_candidate( $received_amount, $candidates, $tolerance ) {
+
+    $received_cents  = (int) round( (float) $received_amount * 100 );
+    $tolerance_cents = (int) round( (float) $tolerance * 100 );
+
+    foreach ( $candidates as $candidate ) {
+
+        $allowed_cents = ! empty( $candidate['exact'] ) ? 0 : $tolerance_cents;
+
+        if ( abs( $received_cents - (int) round( (float) $candidate['amount'] * 100 ) ) <= $allowed_cents )
+            return $candidate;
+
+    }
+
+    return null;
+
+}
+
+/**
+ * Checks an IPN against the amount, currency and plan it is expected to have, and logs a mismatch
+ *
+ * @param PMS_Payment $payment      The payment the IPN is matched against.
+ * @param array       $payment_data IPN data.
+ * @param array       $expected     The `currency` and `plan_id` to match, and either an `amounts` list (matched within
+ *                                  pms_paypal_ipn_amount_tolerance()) or a single `amount` (matched exactly).
+ * @param array       $post_data    The raw IPN, read only to log a mismatch.
+ *
+ * @return bool
+ *
+ */
+function pms_paypal_ipn_matches_expected( $payment, $payment_data, $expected, $post_data = array() ) {
+    $candidates        = pms_paypal_expected_amount_candidates( $expected );
     $received_amount   = pms_paypal_normalize_amount( isset( $payment_data['amount'] ) ? $payment_data['amount'] : 0 );
     $expected_currency = strtoupper( ! empty( $expected['currency'] ) ? $expected['currency'] : pms_get_active_currency() );
     $received_currency = strtoupper( ! empty( $payment_data['currency'] ) ? $payment_data['currency'] : '' );
     $expected_plan_id  = absint( $expected['plan_id'] );
     $received_plan_id  = absint( isset( $payment_data['subscription_id'] ) ? $payment_data['subscription_id'] : 0 );
 
-    $amount_matches = $expected_amount === $received_amount;
+    $amount_matches = pms_paypal_match_amount_candidate( $received_amount, $candidates, pms_paypal_ipn_amount_tolerance( $payment_data, $payment, $expected ) ) !== null;
 
     /**
      * Filters whether a PayPal IPN whose amount differs from the expected amount should still be accepted.
@@ -273,29 +377,79 @@ function pms_paypal_ipn_matches_expected( $payment, $payment_data, $expected ) {
      * @param bool        $bypass       Whether to skip the amount check. Default false.
      * @param array       $payment_data IPN data (amount, currency, subscription_id, transaction_id, and type, status, payment_id, user_id when available).
      * @param PMS_Payment $payment      The payment the IPN is matched against.
-     * @param array       $expected     Expected amount, currency and plan ID.
+     * @param array       $expected     The expected `amount`, `currency` and `plan_id`. For a renewal, also the `amounts` the IPN
+     *                                  was matched against, as pms_paypal_resolve_expected_recurring() returns them.
      */
     if ( ! $amount_matches && apply_filters( 'pms_paypal_ipn_bypass_amount_verification', false, $payment_data, $payment, $expected ) ) {
         $amount_matches = true;
     }
 
-    if ( $amount_matches && $expected_currency === $received_currency && $expected_plan_id === $received_plan_id ) {
+    $currency_matches = $expected_currency === $received_currency;
+
+    /**
+     * Filters whether a PayPal IPN whose currency differs from the expected currency should still be accepted
+     *
+     * For converted currencies only, where PayPal charges a converted amount in another currency than the one stored by PMS.
+     * Amount, plan and transaction ID checks still apply.
+     *
+     * @param bool        $bypass       Whether to skip the currency check. Default false.
+     * @param array       $payment_data IPN data.
+     * @param PMS_Payment $payment      The payment the IPN is matched against.
+     * @param array       $expected     The expected `amount`, `currency` and `plan_id`. For a renewal, also the `amounts` the IPN
+     *                                  was matched against, as pms_paypal_resolve_expected_recurring() returns them.
+     *
+     */
+    if ( ! $currency_matches && apply_filters( 'pms_paypal_ipn_bypass_currency_verification', false, $payment_data, $payment, $expected ) ) {
+        $currency_matches = true;
+    }
+
+    $plan_matches = $expected_plan_id === $received_plan_id;
+
+    if ( $amount_matches && $currency_matches && $plan_matches ) {
         return true;
     }
 
-    pms_paypal_log_ipn_mismatch(
-        $payment,
-        array(
-            'reason'            => 'amount_currency_or_plan_mismatch',
-            'expected_amount'   => $expected_amount,
-            'received_amount'   => $received_amount,
-            'expected_currency' => $expected_currency,
-            'received_currency' => $received_currency,
-            'expected_plan_id'  => $expected_plan_id,
-            'received_plan_id'  => $received_plan_id,
-        ),
-        'PayPal IPN rejected: amount, currency, or plan does not match pending payment'
+    $profile_id = '';
+
+    if ( ! empty( $payment_data['profile_id'] ) )
+        $profile_id = $payment_data['profile_id'];
+    elseif ( ! empty( $post_data['recurring_payment_id'] ) )
+        $profile_id = $post_data['recurring_payment_id'];
+    elseif ( ! empty( $post_data['subscr_id'] ) )
+        $profile_id = $post_data['subscr_id'];
+
+    $details = array(
+        'reason'               => 'amount_currency_or_plan_mismatch',
+        'failed'               => array_keys( array_filter( array( 'amount' => ! $amount_matches, 'currency' => ! $currency_matches, 'plan' => ! $plan_matches ) ) ),
+        'expected_amount'      => ! empty( $candidates ) ? $candidates[0]['amount'] : '',
+        'received_amount'      => $received_amount,
+        'expected_currency'    => $expected_currency,
+        'received_currency'    => $received_currency,
+        'expected_plan_id'     => $expected_plan_id,
+        'received_plan_id'     => $received_plan_id,
+        'candidates'           => $candidates,
+        'profile_id'           => sanitize_text_field( $profile_id ),
+        'transaction_id'       => isset( $payment_data['transaction_id'] ) ? sanitize_text_field( $payment_data['transaction_id'] ) : '',
+        'payment_date'         => isset( $payment_data['date'] ) ? sanitize_text_field( $payment_data['date'] ) : '',
+        'mc_gross'             => isset( $post_data['mc_gross'] ) ? sanitize_text_field( $post_data['mc_gross'] ) : '',
+        'mc_currency'          => isset( $post_data['mc_currency'] ) ? sanitize_text_field( $post_data['mc_currency'] ) : '',
+        'ipn_amount_per_cycle' => isset( $post_data['amount_per_cycle'] ) ? sanitize_text_field( $post_data['amount_per_cycle'] ) : '',
+        'txn_type'             => sanitize_text_field( ! empty( $payment_data['type'] ) ? $payment_data['type'] : ( isset( $post_data['txn_type'] ) ? $post_data['txn_type'] : '' ) ),
     );
+
+    pms_paypal_log_ipn_mismatch( $payment, $details, 'PayPal IPN rejected: amount, currency, or plan does not match pending payment' );
+
+    /**
+     * Fires after a PayPal IPN is rejected because its amount, currency or plan does not match what PMS expects
+     *
+     * @param PMS_Payment $payment      The payment the IPN was matched against.
+     * @param array       $payment_data IPN data.
+     * @param array       $expected     The expected `amount`, `currency` and `plan_id`. For a renewal, also the `amounts` the IPN
+     *                                  was matched against, as pms_paypal_resolve_expected_recurring() returns them.
+     * @param array       $details      What was logged on the payment: the expected and received values, the failed checks and the IPN identifiers.
+     *
+     */
+    do_action( 'pms_paypal_ipn_payment_mismatch', $payment, $payment_data, $expected, $details );
 
     return false;
 }
@@ -331,51 +485,101 @@ function pms_paypal_ipn_transaction_id_available( $payment, $transaction_id ) {
     return false;
 }
 
-function pms_paypal_ipn_can_complete_pending_payment( $payment, $payment_data ) {
-    if ( empty( $payment->id ) || $payment->status !== 'pending' ) {
-        if ( ! empty( $payment->id ) ) {
-            pms_paypal_log_ipn_mismatch(
-                $payment,
-                array(
-                    'reason'         => 'payment_not_pending',
-                    'payment_status' => $payment->status,
-                ),
-                'PayPal IPN rejected: payment is not pending'
-            );
+/**
+ * The payment log is the only record of a payment that older versions failed on a Pending IPN.
+ */
+function pms_paypal_ipn_payment_failed_by_pending_ipn( $payment, $transaction_id ) {
+    if ( $payment->status !== 'failed' || $payment->payment_gateway !== 'paypal_standard' || $transaction_id === '' || $payment->transaction_id !== $transaction_id || pms_get_payment_refund_date( $payment->id ) || ! is_array( $payment->logs ) ) {
+        return false;
+    }
+
+    $status_changes = 0;
+
+    foreach ( array_reverse( $payment->logs ) as $log ) {
+        if ( empty( $log['type'] ) ) {
+            continue;
         }
+
+        if ( $log['type'] === 'status_changed' && ++$status_changes > 1 ) {
+            return false;
+        }
+
+        if ( $log['type'] === 'payment_failed' ) {
+            $ipn = isset( $log['data']['data'] ) ? $log['data']['data'] : array();
+
+            return isset( $ipn['payment_status'], $ipn['txn_id'] ) && strtolower( $ipn['payment_status'] ) === 'pending' && $ipn['txn_id'] === $transaction_id;
+        }
+    }
+
+    return false;
+}
+
+function pms_paypal_ipn_can_complete_pending_payment( $payment, $payment_data, $post_data = array() ) {
+    if ( empty( $payment->id ) ) {
+        return false;
+    }
+
+    $transaction_id = isset( $payment_data['transaction_id'] ) ? $payment_data['transaction_id'] : '';
+
+    if ( $payment->status !== 'pending' && ! pms_paypal_ipn_payment_failed_by_pending_ipn( $payment, $transaction_id ) ) {
+        pms_paypal_log_ipn_mismatch(
+            $payment,
+            array(
+                'reason'         => 'payment_not_pending',
+                'payment_status' => $payment->status,
+            ),
+            'PayPal IPN rejected: payment is not pending'
+        );
 
         return false;
     }
 
     $expected = array(
         'amount'   => $payment->amount,
-        'currency' => ! empty( $payment->currency ) ? $payment->currency : pms_get_active_currency(),
+        'currency' => pms_get_payment_currency( $payment ),
         'plan_id'  => $payment->subscription_id,
     );
 
-    if ( ! pms_paypal_ipn_matches_expected( $payment, $payment_data, $expected ) ) {
+    if ( ! pms_paypal_ipn_matches_expected( $payment, $payment_data, $expected, $post_data ) ) {
         return false;
     }
-
-    $transaction_id = isset( $payment_data['transaction_id'] ) ? $payment_data['transaction_id'] : '';
 
     return pms_paypal_ipn_transaction_id_available( $payment, $transaction_id );
 }
 
+/**
+ * PayPal sends Pending while it holds a payment (eCheck, review, currency acceptance) and Completed later for the same transaction.
+ */
+function pms_paypal_ipn_record_pending_payment( $payment, $payment_data, $post_data ) {
+    if ( empty( $payment->id ) || $payment->status !== 'pending' ) {
+        return;
+    }
+
+    $payment->log_data( 'paypal_ipn_pending', array( 'data' => $post_data, 'desc' => 'paypal IPN' ) );
+
+    if ( pms_paypal_ipn_can_complete_pending_payment( $payment, $payment_data, $post_data ) ) {
+        $payment->update( array( 'transaction_id' => $payment_data['transaction_id'] ) );
+    }
+}
+
+/**
+ * Returns the amount a PayPal renewal is expected to have
+ *
+ * @deprecated Use pms_paypal_resolve_expected_recurring(), which returns every amount a renewal may have, and its currency.
+ *
+ * @param PMS_Payment                        $payment             The initial payment of the PayPal profile.
+ * @param PMS_Subscription_Plan|null         $plan                The plan of the initial payment.
+ * @param PMS_Member_Subscription|false|null $member_subscription The member subscription the renewal extends.
+ *
+ * @return mixed The first expected amount, or the payment amount when none is known.
+ *
+ */
 function pms_paypal_expected_recurring_amount( $payment, $plan = null, $member_subscription = null ) {
-    if ( is_object( $member_subscription ) && (float) $member_subscription->billing_amount > 0 ) {
-        return $member_subscription->billing_amount;
-    }
 
-    if ( is_object( $plan ) && ! $plan->has_sign_up_fee() && $payment->amount !== '' && $payment->amount !== null ) {
-        return $payment->amount;
-    }
+    $candidates = pms_paypal_expected_amount_candidates( pms_paypal_resolve_expected_recurring( $payment, $plan, $member_subscription ) );
 
-    if ( is_object( $plan ) && $plan->price !== '' && $plan->price !== null ) {
-        return $plan->price;
-    }
+    return ! empty( $candidates ) ? $candidates[0]['amount'] : $payment->amount;
 
-    return $payment->amount;
 }
 
 /**
@@ -404,8 +608,22 @@ function pms_paypal_payment_logs_system_error_messages( $message, $log ) {
         case 'paypal_ipn_not_received':
             $message = __( 'Instant Payment Notification (IPN) not received from PayPal.', 'paid-member-subscriptions' );
             break;
+        case 'paypal_ipn_pending':
+            $message = __( 'PayPal reported the payment as pending. Waiting for PayPal to complete it.', 'paid-member-subscriptions' );
+
+            if( !empty( $log['data']['data']['pending_reason'] ) ) {
+                /* translators: %s: pending reason sent by PayPal, for example echeck */
+                $message .= ' ' . sprintf( __( 'Reason: <strong>%s</strong>', 'paid-member-subscriptions' ), esc_html( $log['data']['data']['pending_reason'] ) );
+            }
+            break;
         case 'paypal_ipn_payment_mismatch':
             $message = __( 'PayPal IPN rejected because it does not match the pending payment.', 'paid-member-subscriptions' );
+            break;
+        case 'paypal_ipn_expected_override':
+            if( isset( $log['data']['initial_payment_id'] ) )
+                $message = sprintf( __( 'PMS accepted this PayPal renewal through the <strong>%1$s</strong> match, where the earlier exact check would have rejected it. Details are logged on initial payment #%2$s.', 'paid-member-subscriptions' ), esc_html( $log['data']['source'] ), (int)$log['data']['initial_payment_id'] );
+            else
+                $message = sprintf( __( 'PMS accepted PayPal renewal %1$s at <strong>%4$s %5$s</strong> through the <strong>%6$s</strong> match. The earlier exact check expected %2$s %3$s and would have rejected it.', 'paid-member-subscriptions' ), esc_html( $log['data']['transaction_id'] ), esc_html( $log['data']['old_expected_amount'] ), esc_html( $log['data']['old_expected_currency'] ), esc_html( $log['data']['accepted_amount'] ), esc_html( $log['data']['accepted_currency'] ), esc_html( $log['data']['source'] ) );
             break;
         case 'paypal_deleted_subscription_cancel_failed':
             $message  = sprintf( __( 'Subscription #%1$s was deleted, but PayPal could not cancel its profile <strong>%2$s</strong>.', 'paid-member-subscriptions' ), (int)$log['data']['subscription_id'], esc_html( $log['data']['profile_id'] ) );

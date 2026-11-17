@@ -49,10 +49,11 @@ Class PMS_Merge_Tags{
      * @param $user_info            - used for merge tags related to the user
      * @param $subscription_id      - used for merge tags related to the subscription
      * @param $payment_id           - used for merge tags related to the payment
+     * @param $escape_shortcodes    - encode [ and ] in tag values as HTML entities, so a later do_shortcode() never runs a shortcode a member typed into their name, a gift message or a group name. Pass false only for plain text that never reaches do_shortcode(), such as email subjects.
      *
      * @return mixed text with merge tags replaced
      */
-    static function process_merge_tags( $text, $user_info, $subscription_id = 0, $payment_id = 0, $action = '', $data = array() ){
+    static function process_merge_tags( $text, $user_info, $subscription_id = 0, $payment_id = 0, $action = '', $data = array(), $escape_shortcodes = true ){
 
         $merge_tags = PMS_Merge_Tags::get_merge_tags();
 
@@ -60,14 +61,26 @@ Class PMS_Merge_Tags{
             foreach( $merge_tags as $merge_tag ){
                 $tag_value = apply_filters( 'pms_merge_tag_' . $merge_tag, '', $user_info, $subscription_id, $payment_id, $action, $data );
 
-                if( $tag_value != null && !is_wp_error( $tag_value ) )
+                if( $tag_value != null && !is_wp_error( $tag_value ) ) {
+
+                    if( $escape_shortcodes )
+                        $tag_value = strtr( (string) $tag_value, array( '[' => '&#91;', ']' => '&#93;' ) );
+
                     $text = str_replace( '{{'.$merge_tag.'}}', $tag_value, $text );
-                else
+
+                } else {
                     $text = str_replace( '{{'.$merge_tag.'}}', '', $text );
+                }
             }
         }
 
         return $text;
+
+    }
+
+    static function process_subject_merge_tags( $text, $user_info, $subscription_id = 0, $payment_id = 0, $action = '', $data = array() ){
+
+        return PMS_Merge_Tags::process_merge_tags( $text, $user_info, $subscription_id, $payment_id, $action, $data, false );
 
     }
 

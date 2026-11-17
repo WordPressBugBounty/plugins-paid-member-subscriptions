@@ -92,9 +92,10 @@ function pms_get_payments( $args = array() ) {
 
     $query_where = "WHERE 1=%d ";
 
-    // Collect $wpdb->prepare() arguments in the same order their placeholders appear in $query_where.
-    // Status and search are bound as placeholders so untrusted input never becomes part of the format
-    // string passed to prepare() (which would otherwise let a numbered %n$ directive be interpreted).
+    // $query_where is the format string of the final $wpdb->prepare(), so it must never hold a raw value: prepare() would
+    // interpret a numbered %n$ directive in it. Search, status and transaction_id are bound as placeholders, with their
+    // arguments collected here in placeholder order. The other string filters are prepared on their own: prepare() escapes
+    // every % in what it returns, and the clause text stays what pms_get_payments_query_where callbacks match.
     $query_where_args = array( 1 );
 
     // Add search query
@@ -130,13 +131,13 @@ function pms_get_payments( $args = array() ) {
             $args['date'][0] = sanitize_text_field( $args['date'][0] );
             $args['date'][1] = sanitize_text_field( $args['date'][1] );
 
-            $query_where = $query_where . " AND " . " ( pms_payments.date BETWEEN '{$args['date'][0]}' AND '{$args['date'][1]}' )";
+            $query_where = $query_where . " AND " . $wpdb->prepare( " ( pms_payments.date BETWEEN %s AND %s )", $args['date'][0], $args['date'][1] );
 
         } elseif( is_string( $args['date'] ) ) {
 
             $args['date'] = sanitize_text_field( $args['date'] );
 
-            $query_where = $query_where . " AND " . " pms_payments.date LIKE '%%{$args['date']}%%'";
+            $query_where = $query_where . " AND " . $wpdb->prepare( " pms_payments.date LIKE %s", '%' . $wpdb->esc_like( $args['date'] ) . '%' );
 
         }
 
@@ -145,19 +146,19 @@ function pms_get_payments( $args = array() ) {
     // Filter by type
     if( !empty( $args['type'] ) ) {
         $type = sanitize_text_field( $args['type'] );
-        $query_where    = $query_where . " AND " . " pms_payments.type LIKE '{$type}'";
+        $query_where    = $query_where . " AND " . $wpdb->prepare( " pms_payments.type LIKE %s", $type );
     }
 
     // Filter by currency
     if( !empty( $args['currency'] ) ) {
         $currency = sanitize_text_field( $args['currency'] );
-        $query_where    = $query_where . " AND " . " pms_payments.currency LIKE '{$currency}'";
+        $query_where    = $query_where . " AND " . $wpdb->prepare( " pms_payments.currency LIKE %s", $currency );
     }
 
-    // Filter by profile_id
+    // Filter by profile_id, literally: a "_" or "%" in the ID is not a wildcard
     if( !empty( $args['profile_id'] ) ) {
         $profile_id = sanitize_text_field( $args['profile_id'] );
-        $query_where    = $query_where . " AND " . " pms_payments.profile_id LIKE '{$profile_id}'";
+        $query_where    = $query_where . " AND " . $wpdb->prepare( " pms_payments.profile_id LIKE %s", $wpdb->esc_like( $profile_id ) );
     }
 
     // Filter by user_id
@@ -198,7 +199,7 @@ function pms_get_payments( $args = array() ) {
     // Filter by payment_gateway
     if( !empty( $args['payment_gateway'] ) ) {
         $payment_gateway = sanitize_text_field( $args['payment_gateway'] );
-        $query_where     = $query_where . " AND " . " pms_payments.payment_gateway LIKE '{$payment_gateway}'";
+        $query_where     = $query_where . " AND " . $wpdb->prepare( " pms_payments.payment_gateway LIKE %s", $payment_gateway );
     }
 
     $query_order_by = '';
@@ -268,6 +269,43 @@ function pms_get_payments( $args = array() ) {
     $payments = apply_filters( 'pms_get_payments', $payments, $args );
 
     return $payments;
+
+}
+
+
+/**
+ * Claims the single pms_after_checkout_is_processed run for a payment.
+ *
+ * The browser checkout and a payment gateway webhook can both complete the same checkout, at the same time. Each caller
+ * adds its own claim row, then the row with the lowest meta_id wins, so only one caller gets true.
+ *
+ * @param int $payment_id
+ *
+ * @return bool
+ *
+ */
+function pms_claim_checkout_processed( $payment_id = 0 ) {
+
+    global $wpdb;
+
+    $payment_id = absint( $payment_id );
+
+    if( empty( $payment_id ) )
+        return true;
+
+    $meta_id = pms_add_payment_meta( $payment_id, 'checkout_processed', time() );
+
+    if( empty( $meta_id ) )
+        return false;
+
+    $first_meta_id = $wpdb->get_var( $wpdb->prepare( "SELECT MIN(meta_id) FROM {$wpdb->prefix}pms_paymentmeta WHERE payment_id = %d AND meta_key = %s", $payment_id, 'checkout_processed' ) );
+
+    if( (int) $first_meta_id === (int) $meta_id )
+        return true;
+
+    delete_metadata_by_mid( 'payment', $meta_id );
+
+    return false;
 
 }
 
@@ -388,7 +426,8 @@ function pms_get_payments_count( $args = array() ) {
     $query_where = "WHERE 1=%d ";
 
     // Collect $wpdb->prepare() arguments in the same order their placeholders appear in $query_where,
-    // so the status filter can be bound as a placeholder instead of interpolated into the query string.
+    // so the search and status filters can be bound as placeholders instead of interpolated into the query string.
+    // The other string filters are prepared on their own, as in pms_get_payments().
     $query_where_args = array( 1 );
 
     // Add search query
@@ -407,7 +446,7 @@ function pms_get_payments_count( $args = array() ) {
     // Filter by type
     if( !empty( $args['type'] ) ) {
         $type = sanitize_text_field( $args['type'] );
-        $query_where .= " AND " . " pms_payments.type LIKE '{$type}'";
+        $query_where .= " AND " . $wpdb->prepare( " pms_payments.type LIKE %s", $type );
     }
 
     // Filter by user_id
@@ -431,7 +470,7 @@ function pms_get_payments_count( $args = array() ) {
     // Filter by payment_gateway
     if( !empty( $args['payment_gateway'] ) ) {
         $payment_gateway = sanitize_text_field( $args['payment_gateway'] );
-        $query_where .= " AND " . " pms_payments.payment_gateway LIKE '{$payment_gateway}'";
+        $query_where .= " AND " . $wpdb->prepare( " pms_payments.payment_gateway LIKE %s", $payment_gateway );
     }
 
     // Filter by date
@@ -439,10 +478,10 @@ function pms_get_payments_count( $args = array() ) {
         if( is_array( $args['date'] ) && !empty( $args['date'][0] ) && !empty( $args['date'][1] ) ) {
             $args['date'][0] = sanitize_text_field( $args['date'][0] );
             $args['date'][1] = sanitize_text_field( $args['date'][1] );
-            $query_where .= " AND ( pms_payments.date BETWEEN '{$args['date'][0]}' AND '{$args['date'][1]}' )";
+            $query_where .= " AND " . $wpdb->prepare( "( pms_payments.date BETWEEN %s AND %s )", $args['date'][0], $args['date'][1] );
         } elseif( is_string( $args['date'] ) ) {
             $args['date'] = sanitize_text_field( $args['date'] );
-            $query_where .= " AND pms_payments.date LIKE '%%{$args['date']}%%'";
+            $query_where .= " AND " . $wpdb->prepare( "pms_payments.date LIKE %s", '%' . $wpdb->esc_like( $args['date'] ) . '%' );
         }
     }
 
@@ -985,7 +1024,9 @@ function pms_cron_process_pending_payments() {
 
     $gateways = array( 'paypal_standard', 'paypal_express', 'stripe_intents' );
 
-    $payments = $wpdb->get_results( "SELECT * FROM {$wpdb->prefix}pms_payments WHERE `status` = 'pending' AND `date` > '0000-00-00 00:00:00' AND `date` < DATE_SUB( NOW(), INTERVAL 2 DAY ) AND `payment_gateway` IN ('". implode( '\',\'', $gateways ) ."') ORDER BY id DESC", ARRAY_A );
+    $paypal_reported_pending = "`payment_gateway` = 'paypal_standard' AND `transaction_id` <> ''";
+
+    $payments = $wpdb->get_results( "SELECT * FROM {$wpdb->prefix}pms_payments WHERE `status` = 'pending' AND `date` > '0000-00-00 00:00:00' AND `date` < DATE_SUB( NOW(), INTERVAL 2 DAY ) AND `payment_gateway` IN ('". implode( '\',\'', $gateways ) ."') AND NOT ( {$paypal_reported_pending} ) ORDER BY id DESC", ARRAY_A );
 
     if ( empty( $payments ) )
         return;

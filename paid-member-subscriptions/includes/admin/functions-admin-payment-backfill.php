@@ -13,6 +13,10 @@ define( 'PMS_PAYMENT_CURRENCY_BACKFILL_HOOK', 'pms_payment_currency_backfill_bat
 define( 'PMS_PAYMENT_CURRENCY_BACKFILL_GROUP', 'pms_payment_currency_backfill' );
 define( 'PMS_PAYMENT_CURRENCY_BACKFILL_BATCH_SIZE', 100 );
 
+define( 'PMS_PAYMENT_CURRENCY_CORRECTION_HOOK', 'pms_payment_currency_correction_batch' );
+define( 'PMS_PAYMENT_CURRENCY_CORRECTION_GROUP', 'pms_payment_currency_correction' );
+define( 'PMS_PAYMENT_CURRENCY_CORRECTION_BATCH_SIZE', 100 );
+
 define( 'PMS_PAYMENT_BACKFILLS_PENDING_SCHEDULE_OPTION', 'pms_payment_backfills_pending_schedule' );
 
 add_action( 'action_scheduler_init', 'pms_run_pending_payment_backfill_schedule', 20 );
@@ -62,12 +66,13 @@ function pms_payment_backfill_is_scheduled_or_complete( $complete_option, $hook,
 }
 
 /**
- * Whether both backfill jobs are done or have a queued Action Scheduler batch.
+ * Whether every enabled backfill job is done or has a queued Action Scheduler batch.
  */
 function pms_payment_backfills_initial_schedule_complete() {
 
     return pms_payment_backfill_is_scheduled_or_complete( 'pms_refund_meta_backfill_complete', PMS_REFUND_META_BACKFILL_HOOK, PMS_REFUND_META_BACKFILL_GROUP )
-        && pms_payment_backfill_is_scheduled_or_complete( 'pms_payment_currency_backfill_complete', PMS_PAYMENT_CURRENCY_BACKFILL_HOOK, PMS_PAYMENT_CURRENCY_BACKFILL_GROUP );
+        && pms_payment_backfill_is_scheduled_or_complete( 'pms_payment_currency_backfill_complete', PMS_PAYMENT_CURRENCY_BACKFILL_HOOK, PMS_PAYMENT_CURRENCY_BACKFILL_GROUP )
+        && ( ! pms_payment_currency_correction_enabled() || pms_payment_backfill_is_scheduled_or_complete( 'pms_payment_currency_correction_complete', PMS_PAYMENT_CURRENCY_CORRECTION_HOOK, PMS_PAYMENT_CURRENCY_CORRECTION_GROUP ) );
 
 }
 
@@ -104,12 +109,15 @@ function pms_run_pending_payment_backfill_schedule() {
 }
 
 /**
- * Schedule refund-meta and currency backfill batches when prerequisites are met.
+ * Schedule refund-meta backfill, currency backfill and currency correction batches when prerequisites are met.
  */
 function pms_maybe_schedule_payment_backfills_now() {
 
     pms_maybe_schedule_backfill_batch( 'pms_refund_meta_backfill_complete', PMS_REFUND_META_BACKFILL_HOOK, PMS_REFUND_META_BACKFILL_GROUP );
     pms_maybe_schedule_backfill_batch( 'pms_payment_currency_backfill_complete', PMS_PAYMENT_CURRENCY_BACKFILL_HOOK, PMS_PAYMENT_CURRENCY_BACKFILL_GROUP );
+
+    if ( pms_payment_currency_correction_enabled() )
+        pms_maybe_schedule_backfill_batch( 'pms_payment_currency_correction_complete', PMS_PAYMENT_CURRENCY_CORRECTION_HOOK, PMS_PAYMENT_CURRENCY_CORRECTION_GROUP );
 
 }
 
@@ -294,6 +302,124 @@ function pms_backfill_payment_currency( $payment_id ) {
     if ( ! $payment || empty( $payment->id ) || ! empty( $payment->currency ) )
         return false;
 
-    return $payment->update( array( 'currency' => pms_get_active_currency() ) );
+    return $payment->update( array( 'currency' => pms_get_payment_currency( $payment ) ) );
+
+}
+
+/**
+ * Whether the payment currency correction runs
+ *
+ * @return bool
+ *
+ */
+function pms_payment_currency_correction_enabled() {
+
+    /**
+     * Filters whether PMS sets the `currency` column of payments to the currency in their meta `currency`, where the column
+     * holds the site currency instead. Return false to never schedule or run the correction.
+     *
+     * @param bool $enabled Default true.
+     *
+     */
+    return (bool) apply_filters( 'pms_payment_currency_correction_enabled', true );
+
+}
+
+add_action( PMS_PAYMENT_CURRENCY_CORRECTION_HOOK, 'pms_run_payment_currency_correction_batch' );
+
+/**
+ * Runs one batch of the payment currency correction
+ *
+ * The batch size is filtered by `pms_payment_currency_correction_batch_size`.
+ *
+ * @return void
+ *
+ */
+function pms_run_payment_currency_correction_batch() {
+
+    if ( ! pms_payment_currency_correction_enabled() )
+        return;
+
+    pms_run_backfill_batch(
+        'pms_payment_currency_correction_complete',
+        PMS_PAYMENT_CURRENCY_CORRECTION_HOOK,
+        PMS_PAYMENT_CURRENCY_CORRECTION_GROUP,
+        'pms_payment_currency_correction_batch_size',
+        PMS_PAYMENT_CURRENCY_CORRECTION_BATCH_SIZE,
+        'pms_get_payment_currency_correction_payment_ids',
+        'pms_correct_payment_currency'
+    );
+
+}
+
+/**
+ * Returns the IDs of payments whose `currency` column holds the site currency while their meta `currency` holds another one
+ *
+ * @param int $batch_size
+ * @param int $after_id
+ *
+ * @return int[]
+ *
+ */
+function pms_get_payment_currency_correction_payment_ids( $batch_size, $after_id = 0 ) {
+
+    global $wpdb;
+
+    $site_currency = pms_normalize_currency_code( pms_get_active_currency() );
+
+    return $wpdb->get_col(
+        $wpdb->prepare(
+            "SELECT DISTINCT p.id FROM {$wpdb->prefix}pms_payments p
+            INNER JOIN {$wpdb->prefix}pms_paymentmeta pm ON p.id = pm.payment_id AND pm.meta_key = 'currency'
+            WHERE p.currency = %s AND pm.meta_value <> '' AND UPPER(TRIM(pm.meta_value)) <> %s AND p.id > %d
+            ORDER BY p.id ASC
+            LIMIT %d",
+            $site_currency,
+            $site_currency,
+            $after_id,
+            $batch_size
+        )
+    );
+
+}
+
+/**
+ * Sets the `currency` column of a payment to the currency in its meta `currency` when the column holds the site currency instead
+ *
+ * Writes only the meta currency, and only when pms_get_payment_currency() returns it too, so that a gateway that cannot
+ * charge the meta currency or a `pms_get_payment_currency` filter keeps the column as it is. Skips payments that Multiple
+ * Currencies converted to the site currency, because their column is the charged currency.
+ *
+ * @param int $payment_id
+ *
+ * @return bool Whether the payment was corrected.
+ *
+ */
+function pms_correct_payment_currency( $payment_id ) {
+
+    $payment = pms_get_payment( $payment_id );
+
+    if ( empty( $payment->id ) )
+        return false;
+
+    $from = pms_normalize_currency_code( $payment->currency );
+
+    if ( $from !== pms_normalize_currency_code( pms_get_active_currency() ) )
+        return false;
+
+    $to = pms_get_payment_currency( $payment );
+
+    if ( $to === $from || $to !== pms_normalize_currency_code( pms_get_payment_meta( $payment->id, 'currency', true ) ) )
+        return false;
+
+    if ( is_array( $payment->logs ) && in_array( 'pms_mc_currency_converted', array_column( $payment->logs, 'type' ), true ) )
+        return false;
+
+    if ( ! $payment->update( array( 'currency' => $to ) ) )
+        return false;
+
+    $payment->log_data( 'payment_currency_corrected', array( 'from' => $from, 'to' => $to, 'source' => 'meta' ) );
+
+    return true;
 
 }

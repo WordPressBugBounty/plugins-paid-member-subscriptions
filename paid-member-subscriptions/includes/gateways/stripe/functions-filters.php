@@ -105,6 +105,9 @@ function pms_stripe_connect_payment_logs_system_error_messages( $message, $log )
         case 'stripe_intent_failed':
             $message = __( 'Payment Intent has failed.', 'paid-member-subscriptions' );
             break;
+        case 'stripe_intent_mismatch':
+            $message = sprintf( __( 'Payment Intent %s does not match this payment, so it was not used to complete it.', 'paid-member-subscriptions' ), '<strong>' . esc_html( $log['data']['payment_intent_id'] ) . '</strong>' );
+            break;
         case 'stripe_authentication_sent':
             $message = __( '3D Secure authentication required. An email with the confirmation link was sent to the user.', 'paid-member-subscriptions' );
             break;

@@ -233,9 +233,12 @@ Class PMS_Payment_Gateway_PayPal_Connect extends PMS_Payment_Gateway {
 
         }
 
-        // This function always returns true due to the logic that's written inside PMS_Form_Handler::process_checkout()
-        // Basically, it expects to first use this function to register the billing info and then continue with the process_payment() function if necessary
-        // Since we need to do the capture inside process_payment() when this is not a free trial checkout, this function needs to pass all the time
+        $payment          = pms_get_payment( $this->payment_id );
+        $is_trial_or_zero = empty( $payment->id ) || $payment->amount == 0 || ( !is_null( $this->sign_up_amount ) && $this->sign_up_amount == 0 );
+
+        if( $is_trial_or_zero && empty( pms_get_member_subscription_meta( $member_subscription_id, '_paypal_vault_id', true ) ) )
+            return false;
+
         return true;
 
     }
@@ -544,7 +547,7 @@ Class PMS_Payment_Gateway_PayPal_Connect extends PMS_Payment_Gateway {
             return array( 'error' => esc_html__( 'Failed to get PayPal access token.', 'paid-member-subscriptions' ) );
         }
 
-        $payment_currency = !empty( $payment->currency ) ? strtoupper( $payment->currency ) : pms_get_active_currency();
+        $payment_currency = pms_get_payment_currency( $payment );
 
         // Prepare refund data
         $refund_data = array(
@@ -840,6 +843,28 @@ Class PMS_Payment_Gateway_PayPal_Connect extends PMS_Payment_Gateway {
 
                 break;
 
+            // gift subscriptions form
+            case 'gift_subscription':
+
+                // Gift Subscriptions 1.9.19 and older read the gifted plan from the request, which the buyer controls. Gift only the plan that was paid for.
+                $gift_payment = pms_get_payment( $this->payment_id );
+
+                if( isset( $_POST['subscription_plans'] ) && !empty( $gift_payment->subscription_id ) )
+                    $_POST['subscription_plans'] = $gift_payment->subscription_id;
+
+                $subscription_data = apply_filters( 'pms_checkout_subscription_data_before_update', $subscription_data, $subscription, $form_location );
+
+                // Gift Subscriptions sets the gifted plan only once the gift payment is completed, and only once. Otherwise
+                // the plan stays empty, and the purchaser's subscription must not move to plan 0.
+                if( empty( $subscription_data['subscription_plan_id'] ) )
+                    break;
+
+                $subscription->update( $subscription_data );
+
+                do_action( 'pms_gift_subscription_form_after_subscription_update', $subscription, $subscription_data );
+
+                break;
+
             default:
                 break;
 
@@ -852,6 +877,11 @@ Class PMS_Payment_Gateway_PayPal_Connect extends PMS_Payment_Gateway {
         foreach( $targets as $target ){
             pms_delete_member_subscription_meta( $subscription->id, $target );
         }
+
+        $payment_id = !empty( $this->payment_id ) ? (int) $this->payment_id : 0;
+
+        if( pms_claim_checkout_processed( $payment_id ) )
+            do_action( 'pms_after_checkout_is_processed', $subscription, $form_location, $payment_id );
 
         return true;
 
@@ -2106,9 +2136,9 @@ Class PMS_Payment_Gateway_PayPal_Connect extends PMS_Payment_Gateway {
         if( !isset( $amount['value'], $amount['currency_code'] ) )
             return false;
 
-        $payment_currency = !empty( $payment->currency ) ? $payment->currency : pms_get_active_currency();
+        $payment_currency = pms_get_payment_currency( $payment );
 
-        if( strtoupper( $amount['currency_code'] ) !== strtoupper( $payment_currency ) )
+        if( strtoupper( $amount['currency_code'] ) !== $payment_currency )
             return false;
 
         return number_format( (float)$amount['value'], 2, '.', '' ) === number_format( (float)$payment->amount, 2, '.', '' );
